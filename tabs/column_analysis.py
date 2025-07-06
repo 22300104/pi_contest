@@ -85,37 +85,42 @@ def render_data_preprocessing_section(df, selected_column):
                 
                 conversion_rate = numeric_convertible / len(sample_data) * 100 if len(sample_data) > 0 else 0
             
-            if conversion_rate > 50:
-                st.success(f"✅ 샘플의 {conversion_rate:.1f}%가 숫자로 변환 가능합니다.")
-                
-                if st.button(f"🔢 {selected_column}을(를) 숫자형으로 변환", key=f"convert_{selected_column}"):
-                    with st.spinner("변환 중..."):
-                        try:
-                            # df_processed가 없으면 생성
-                            if 'df_processed' not in st.session_state:
-                                st.session_state.df_processed = df.copy()
-                            
-                            # 쉼표와 공백 제거 후 변환
-                            cleaned_series = df[selected_column].astype(str).str.replace(',', '').str.replace(' ', '')
-                            st.session_state.df_processed[selected_column] = pd.to_numeric(cleaned_series, errors='coerce')
-                            
-                            success_count = st.session_state.df_processed[selected_column].notna().sum()
-                            failed_count = st.session_state.df_processed[selected_column].isna().sum() - df[selected_column].isna().sum()
-                            
-                            st.success(f"✅ 변환 완료!")
-                            st.info(f"성공: {success_count:,}개 / 실패: {failed_count:,}개")
-                            
-                            # 변환 플래그 설정
-                            st.session_state[f'converted_{selected_column}'] = True
-                            
-                            # 변환된 샘플 보여주기
-                            st.write("변환된 데이터 샘플:")
-                            st.dataframe(st.session_state.df_processed[selected_column].dropna().head())
-                            
-                        except Exception as e:
-                            st.error(f"변환 실패: {str(e)}")
-            else:
-                st.warning(f"⚠️ 샘플의 {conversion_rate:.1f}%만 숫자로 변환 가능합니다.")
+                if conversion_rate >= 50:
+                    st.success(f"✅ 샘플의 {conversion_rate:.1f}%가 숫자로 변환 가능합니다.")
+                    convert_button_label = f"🔢 {selected_column}을(를) 숫자형으로 변환"
+                    allow_conversion = True
+                elif conversion_rate >= 0.1:
+                    st.warning(f"⚠️ 샘플의 {conversion_rate:.1f}%만 숫자로 변환 가능합니다. 주의해서 진행하세요.")
+                    convert_button_label = f"⚠️ {selected_column} 숫자형 변환 시도"
+                    allow_conversion = True
+                else:
+                    st.error(f"❌ 변환 가능한 데이터가 {conversion_rate:.3f}%로 너무 적습니다. 변환을 중단합니다.")
+                    allow_conversion = False
+
+                if allow_conversion:
+                    if st.button(convert_button_label, key=f"convert_{selected_column}"):
+                        with st.spinner("변환 중..."):
+                            try:
+                                if 'df_processed' not in st.session_state:
+                                    st.session_state.df_processed = df.copy()
+
+                                cleaned_series = df[selected_column].astype(str).str.replace(',', '').str.replace(' ', '')
+                                st.session_state.df_processed[selected_column] = pd.to_numeric(cleaned_series, errors='coerce')
+
+                                success_count = st.session_state.df_processed[selected_column].notna().sum()
+                                failed_count = st.session_state.df_processed[selected_column].isna().sum() - df[selected_column].isna().sum()
+
+                                st.success("✅ 변환 완료!")
+                                st.info(f"성공: {success_count:,}개 / 실패: {failed_count:,}개")
+
+                                st.session_state[f'converted_{selected_column}'] = True
+
+                                st.write("변환된 데이터 샘플:")
+                                st.dataframe(st.session_state.df_processed[selected_column].dropna().head())
+
+                            except Exception as e:
+                                st.error(f"변환 실패: {str(e)}")
+
 
 def render_basic_info(col_data):
     """기본 정보 표시"""
