@@ -42,7 +42,7 @@ class DataDetector:
         return file_info
     
     def get_appropriate_stats(self, main_type: str, sub_type: str) -> List[str]:
-        """데이터 타입에 따른 적절한 통계 옵션 반환 (고유값과 무관)"""
+        """데이터 타입에 따른 적절한 통계 옵션 반환"""
         if main_type == "numeric":
             if sub_type == "continuous":
                 return ["기술통계", "분위수", "분포특성", "이상치"]
@@ -71,12 +71,12 @@ class DataDetector:
         return []
     
     def get_appropriate_visualizations(self, main_type: str, sub_type: str) -> List[str]:
-        """데이터 타입에 따른 적절한 시각화 옵션 반환 (고유값과 무관)"""
+        """데이터 타입에 따른 적절한 시각화 옵션 반환"""
         if main_type == "numeric":
             if sub_type == "continuous":
-                return ["히스토그램", "박스플롯", "밀도플롯", "바이올린플롯"]
+                return ["히스토그램", "박스플롯", "밀도플롯", "바이올린플롯", "산점도"]
             elif sub_type == "discrete":
-                return ["막대그래프", "히스토그램", "파이차트", "상위N막대그래프"]
+                return ["막대그래프", "히스토그램", "파이차트", "상위N막대그래프", "산점도"]
             elif sub_type == "binary":
                 return ["파이차트", "막대그래프", "도넛차트"]
         
@@ -93,7 +93,7 @@ class DataDetector:
                 return ["길이분포", "단어빈도", "상위N막대그래프"]
         
         elif main_type == "datetime":
-            return ["시계열그래프", "월별분포", "요일분포", "시간대분포"]
+            return ["시계열그래프", "월별분포", "요일분포", "시간대분포", "산점도"]
         
         return ["막대그래프"]
     
@@ -309,8 +309,8 @@ class DataDetector:
         """선택된 시각화 생성"""
         col_data = df[column].dropna()
         
-        # 작은 사이즈로 피규어 생성
-        fig, ax = plt.subplots(figsize=(8, 5))
+        # 이미지 크기를 작게 조정
+        fig, ax = plt.subplots(figsize=(6, 4))
         
         try:
             # 히스토그램
@@ -342,6 +342,49 @@ class DataDetector:
                 ax.set_xticklabels([column])
                 ax.set_ylabel('값')
                 ax.set_title(f'{column} 바이올린플롯')
+            
+                # 산점도 수정
+            elif viz_type == "산점도":
+                if 'other_column' in params:
+                    other_col = params['other_column']
+                    
+                    # 두 열의 데이터 가져오기 (전처리된 데이터 우선 사용)
+                    if hasattr(self, 'get_processed_data'):
+                        x_data = self.get_processed_data(df, column)
+                        y_data = self.get_processed_data(df, other_col)
+                    else:
+                        x_data = df[column]
+                        y_data = df[other_col]
+                    
+                    # 결측값 제거
+                    valid_idx = x_data.notna() & y_data.notna()
+                    x_data = x_data[valid_idx]
+                    y_data = y_data[valid_idx]
+                    
+                    ax.scatter(x_data, y_data, alpha=0.6, s=30)
+                    ax.set_xlabel(column)
+                    ax.set_ylabel(other_col)
+                    ax.set_title(f'{column} vs {other_col} 산점도')
+                    
+                    # 상관계수 표시
+                    if len(x_data) > 1:
+                        corr = x_data.corr(y_data)
+                        ax.text(0.05, 0.95, f'상관계수: {corr:.3f}', 
+                            transform=ax.transAxes, 
+                            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+                    
+                    # 회귀선 옵션
+                    if params.get('show_regression', False):
+                        z = np.polyfit(x_data, y_data, 1)
+                        p = np.poly1d(z)
+                        ax.plot(sorted(x_data), p(sorted(x_data)), "r--", alpha=0.8, linewidth=2)
+                else:
+                    # 인덱스를 x축으로 사용하는 산점도
+                    ax.scatter(range(len(col_data)), col_data, alpha=0.6, s=30)
+                    ax.set_xlabel('인덱스')
+                    ax.set_ylabel(column)
+                    ax.set_title(f'{column} 산점도')
+
             
             # 막대그래프
             elif viz_type == "막대그래프":
@@ -486,4 +529,24 @@ class DataDetector:
             raise Exception(f"시각화 생성 실패: {str(e)}")
         
         plt.tight_layout()
+        return fig
+    
+    def create_dtype_distribution_chart(self, df: pd.DataFrame):
+        """데이터 타입 분포 차트 생성"""
+        dtype_counts = df.dtypes.value_counts()
+        
+        fig, ax = plt.subplots(figsize=(8, 4))
+        colors = plt.cm.Set3(range(len(dtype_counts)))
+        bars = dtype_counts.plot(kind='bar', ax=ax, color=colors, edgecolor='black')
+        
+        # 막대 위에 값 표시
+        for i, (index, value) in enumerate(dtype_counts.items()):
+            ax.text(i, value + 0.1, str(value), ha='center', va='bottom')
+        
+        ax.set_title("열별 데이터 타입 분포")
+        ax.set_xlabel("데이터 타입")
+        ax.set_ylabel("개수")
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        
         return fig
