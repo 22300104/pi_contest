@@ -283,18 +283,26 @@ def render_type_conversion_section(df):
                         
                         st.dataframe(preview_df)
             
+            # 🔽 기존 코드의 "변환 실행" 위치를 찾아 그대로 교체하세요
             with col_execute:
                 if st.button("✅ 변환 실행", type="primary", disabled=len(selected_columns) == 0):
                     if selected_columns:
                         progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        
-                        success_count = 0
+                        status_text  = st.empty()
+
+                        success_count        = 0          # 변환 완료된 컬럼 수
+                        total_rows_converted = 0          # 변환된 행(값) 총합
+                        per_col_rows         = {}         # 👉 컬럼별 변환 행 수 기록용
+
                         for i, col in enumerate(selected_columns):
                             status_text.text(f"변환 중: {col}")
                             progress_bar.progress((i + 1) / len(selected_columns))
-                            
+
                             try:
+                                # ① 원본 백업 (옵션) ― 이미 df_processed에 사본을 쓰고 있다면 생략 가능
+                                original_series = df[col].copy()
+
+                                # ② 변환
                                 converted = convert_column(
                                     df[col],
                                     remove_comma,
@@ -302,21 +310,41 @@ def render_type_conversion_section(df):
                                     remove_slash,
                                     custom_regex
                                 )
+
+                                # ③ 세션 상태 갱신
                                 st.session_state.df_processed[col] = converted
                                 st.session_state[f'converted_{col}'] = True
                                 success_count += 1
+
+                                # ④ 변환된 행 수 계산
+                                rows_converted = converted.notna().sum()
+                                per_col_rows[col] = rows_converted
+                                total_rows_converted += rows_converted
+
                             except Exception as e:
                                 st.error(f"{col} 변환 실패: {str(e)}")
-                        
+
+                        # 진행 표시 없애기
                         progress_bar.empty()
                         status_text.empty()
-                        
-                        # 원본 데이터도 업데이트
+
+                        # 원본 데이터에도 반영
                         st.session_state.df = st.session_state.df_processed.copy()
-                        
-                        st.success(f"✅ {success_count}/{len(selected_columns)}개 컬럼 변환 완료!")
+
+                        # ⑤ 결과 메시지 (컬럼 수 + 총 행 수)
+                        st.success(
+                            f"✅ {success_count}/{len(selected_columns)}개 컬럼 변환 완료! "
+                            f"총 {total_rows_converted:,}행 변환되었습니다."
+                        )
+
+                        # ⑥ 상세 내역 토글 — 원한다면 추가
+                        with st.expander("📄 컬럼별 변환 행 수", expanded=False):
+                            for c, n_rows in per_col_rows.items():
+                                st.write(f"• **{c}** : {n_rows:,} 행")
+
                         st.balloons()
                         st.rerun()
+
         else:
             st.info("ℹ️ 문자형(object) 컬럼이 없습니다.")
         
