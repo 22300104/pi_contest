@@ -7,3 +7,5 @@ chardet
 openpyxl
 scipy
 wordcloud
+msoffcrypto-tool
+xlrd

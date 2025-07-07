@@ -13,8 +13,21 @@ def render_column_analysis_tab():
     # 데이터 타입 가이드
     data_type_guide()
     
-    # 속성 선택
-    selected_column = st.selectbox("분석할 속성 선택:", df.columns.tolist())
+    # 선택된 컬럼을 세션 상태에 저장
+    if 'selected_column_for_analysis' not in st.session_state:
+        st.session_state.selected_column_for_analysis = df.columns.tolist()[0]
+    
+    # 속성 선택 - 세션 상태 사용
+    selected_column = st.selectbox(
+        "분석할 속성 선택:", 
+        df.columns.tolist(),
+        index=df.columns.tolist().index(st.session_state.selected_column_for_analysis),
+        key="column_analysis_selectbox",
+        on_change=lambda: setattr(st.session_state, 'selected_column_for_analysis', st.session_state.column_analysis_selectbox)
+    )
+    
+    # 선택된 컬럼 업데이트
+    st.session_state.selected_column_for_analysis = selected_column
     
     if selected_column:
         # 전처리된 데이터 확인
@@ -26,14 +39,7 @@ def render_column_analysis_tab():
             df_analysis = df
             col_data = df[selected_column]
         
-        # 데이터 전처리 섹션
-        render_data_preprocessing_section(df, selected_column)
-        
-        # 전처리 후 데이터 다시 확인
-        if 'df_processed' in st.session_state and st.session_state.get(f'converted_{selected_column}', False):
-            df_analysis = st.session_state.df_processed
-            col_data = df_analysis[selected_column]
-        
+
         # 데이터 품질 검사
         data_quality_check(col_data)
         
@@ -41,7 +47,7 @@ def render_column_analysis_tab():
         render_basic_info(col_data)
         
         # 데이터 타입 선택
-        main_type, sub_type = render_data_type_selection(col_data)
+        main_type, sub_type = render_data_type_selection(col_data, selected_column)
         
         # 통계 분석 섹션
         render_statistics_section(df_analysis, selected_column, main_type, sub_type)
@@ -51,76 +57,6 @@ def render_column_analysis_tab():
         
         # 다중 변수 분석 섹션
         render_multivariate_analysis_section(df_analysis)
-
-def render_data_preprocessing_section(df, selected_column):
-    """데이터 전처리 섹션 (rerun 없이)"""
-    with st.expander("🔧 데이터 전처리", expanded=False):
-        col_data = df[selected_column]
-        
-        # 이미 변환된 경우
-        if st.session_state.get(f'converted_{selected_column}', False):
-            st.success(f"✅ {selected_column}이(가) 숫자형으로 변환되었습니다.")
-            
-            if st.button(f"↩️ 원본으로 복원", key=f"restore_{selected_column}"):
-                st.session_state.df_processed[selected_column] = df[selected_column]
-                st.session_state[f'converted_{selected_column}'] = False
-                st.info("원본 데이터로 복원되었습니다.")
-                
-        # 아직 변환하지 않은 경우
-        elif col_data.dtype == 'object':
-            st.info("💡 문자형 데이터입니다. 숫자로 변환 가능한지 확인해보세요.")
-            
-            # 숫자 변환 가능성 체크
-            with st.spinner("변환 가능성 확인 중..."):
-                sample_data = col_data.dropna().head(100)
-                numeric_convertible = 0
-                
-                for val in sample_data:
-                    try:
-                        cleaned_val = str(val).replace(',', '').replace(' ', '')
-                        float(cleaned_val)
-                        numeric_convertible += 1
-                    except:
-                        pass
-                
-                conversion_rate = numeric_convertible / len(sample_data) * 100 if len(sample_data) > 0 else 0
-            
-                if conversion_rate >= 50:
-                    st.success(f"✅ 샘플의 {conversion_rate:.1f}%가 숫자로 변환 가능합니다.")
-                    convert_button_label = f"🔢 {selected_column}을(를) 숫자형으로 변환"
-                    allow_conversion = True
-                elif conversion_rate >= 0.1:
-                    st.warning(f"⚠️ 샘플의 {conversion_rate:.1f}%만 숫자로 변환 가능합니다. 주의해서 진행하세요.")
-                    convert_button_label = f"⚠️ {selected_column} 숫자형 변환 시도"
-                    allow_conversion = True
-                else:
-                    st.error(f"❌ 변환 가능한 데이터가 {conversion_rate:.3f}%로 너무 적습니다. 변환을 중단합니다.")
-                    allow_conversion = False
-
-                if allow_conversion:
-                    if st.button(convert_button_label, key=f"convert_{selected_column}"):
-                        with st.spinner("변환 중..."):
-                            try:
-                                if 'df_processed' not in st.session_state:
-                                    st.session_state.df_processed = df.copy()
-
-                                cleaned_series = df[selected_column].astype(str).str.replace(',', '').str.replace(' ', '')
-                                st.session_state.df_processed[selected_column] = pd.to_numeric(cleaned_series, errors='coerce')
-
-                                success_count = st.session_state.df_processed[selected_column].notna().sum()
-                                failed_count = st.session_state.df_processed[selected_column].isna().sum() - df[selected_column].isna().sum()
-
-                                st.success("✅ 변환 완료!")
-                                st.info(f"성공: {success_count:,}개 / 실패: {failed_count:,}개")
-
-                                st.session_state[f'converted_{selected_column}'] = True
-
-                                st.write("변환된 데이터 샘플:")
-                                st.dataframe(st.session_state.df_processed[selected_column].dropna().head())
-
-                            except Exception as e:
-                                st.error(f"변환 실패: {str(e)}")
-
 
 def render_basic_info(col_data):
     """기본 정보 표시"""
@@ -136,9 +72,19 @@ def render_basic_info(col_data):
     with col4:
         st.metric("타입", str(col_data.dtype))
 
-def render_data_type_selection(col_data):
+def render_data_type_selection(col_data, selected_column):
     """데이터 타입 선택"""
     st.subheader("🏷️ 데이터 타입 선택")
+    
+    # 각 컬럼별로 선택된 타입을 세션 상태에 저장
+    main_type_key = f"main_type_{selected_column}"
+    sub_type_key = f"sub_type_{selected_column}"
+    
+    # 기본값 설정
+    if main_type_key not in st.session_state:
+        st.session_state[main_type_key] = "numeric"
+    if sub_type_key not in st.session_state:
+        st.session_state[sub_type_key] = "continuous"
     
     col1, col2 = st.columns(2)
     
@@ -151,8 +97,11 @@ def render_data_type_selection(col_data):
                 "categorical": "📝 범주형",
                 "text": "💬 텍스트",
                 "datetime": "📅 날짜/시간"
-            }[x]
+            }[x],
+            key=f"main_data_type_radio_{selected_column}",
+            index=["numeric", "categorical", "text", "datetime"].index(st.session_state[main_type_key])
         )
+        st.session_state[main_type_key] = main_type
     
     with col2:
         if main_type == "numeric":
@@ -163,7 +112,8 @@ def render_data_type_selection(col_data):
                     "continuous": "〰️ 연속형",
                     "discrete": "🔢 이산형",
                     "binary": "☯️ 이진형"
-                }[x]
+                }[x],
+                key=f"numeric_subtype_radio_{selected_column}"
             )
         elif main_type == "categorical":
             sub_type = st.radio(
@@ -173,7 +123,8 @@ def render_data_type_selection(col_data):
                     "nominal": "🏷️ 명목형",
                     "ordinal": "📊 순서형",
                     "binary": "☯️ 이진형"
-                }[x]
+                }[x],
+                key=f"categorical_subtype_radio_{selected_column}"
             )
         elif main_type == "text":
             sub_type = st.radio(
@@ -182,10 +133,13 @@ def render_data_type_selection(col_data):
                 format_func=lambda x: {
                     "short": "📝 짧은 텍스트",
                     "long": "📄 긴 텍스트"
-                }[x]
+                }[x],
+                key=f"text_subtype_radio_{selected_column}"
             )
         else:
             sub_type = "datetime"
+        
+        st.session_state[sub_type_key] = sub_type
     
     return main_type, sub_type
 
@@ -202,7 +156,8 @@ def render_statistics_section(df, selected_column, main_type, sub_type):
         selected_stats = st.multiselect(
             "통계 방법 선택:",
             appropriate_stats,
-            default=[]
+            default=[],
+            key=f"stats_multiselect_{selected_column}"
         )
         
         if st.button("📊 통계 실행", key=f"run_stats_{selected_column}"):
@@ -245,9 +200,9 @@ def render_visualization_section(df, selected_column, main_type, sub_type):
         params = {}
         
         if "상위" in selected_viz or "파레토" in selected_viz:
-            params['top_n'] = st.slider("표시할 항목 수:", 5, 50, 20)
+            params['top_n'] = st.slider("표시할 항목 수:", 5, 50, 20, key=f"viz_top_n_slider_{selected_column}")
         elif selected_viz == "히스토그램":
-            params['bins'] = st.slider("구간 수:", 10, 100, 30)
+            params['bins'] = st.slider("구간 수:", 10, 100, 30, key=f"viz_bins_slider_{selected_column}")
         elif selected_viz == "산점도":
             # 숫자형 열 찾기 (실제 숫자형 + 변환된 숫자형)
             numeric_cols = []
@@ -269,9 +224,10 @@ def render_visualization_section(df, selected_column, main_type, sub_type):
                 params['other_column'] = st.selectbox(
                     "Y축 변수:", 
                     numeric_cols,
-                    help="숫자형 또는 숫자로 변환된 열만 표시됩니다"
+                    help="숫자형 또는 숫자로 변환된 열만 표시됩니다",
+                    key=f"scatter_y_axis_select_{selected_column}"
                 )
-                params['show_regression'] = st.checkbox("회귀선 표시")
+                params['show_regression'] = st.checkbox("회귀선 표시", key=f"show_regression_checkbox_{selected_column}")
             else:
                 st.warning("다른 숫자형 열이 없습니다. 먼저 데이터를 숫자형으로 변환해주세요.")
         
@@ -308,14 +264,16 @@ def render_multivariate_analysis_section(df):
             selected_cols = st.multiselect(
                 "비교할 변수들을 선택하세요 (2개 이상):",
                 numeric_cols,
-                default=numeric_cols[:2] if len(numeric_cols) >= 2 else numeric_cols
+                default=numeric_cols[:2] if len(numeric_cols) >= 2 else numeric_cols,
+                key="multivar_column_select"
             )
             
             if len(selected_cols) >= 2:
                 viz_type = st.radio(
                     "시각화 방법:",
                     ["박스플롯 비교", "바이올린플롯 비교", "상관관계 히트맵", "산점도 매트릭스"],
-                    horizontal=True
+                    horizontal=True,
+                    key="multivar_viz_type_radio"
                 )
                 
                 if st.button("📊 다중 변수 시각화 실행", key="multivar_viz"):

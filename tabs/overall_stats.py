@@ -4,9 +4,16 @@ from utils.helpers import format_number, get_memory_usage
 
 def render_overall_stats_tab():
     """전체 통계 탭"""
-    df = st.session_state.df
+    # 전처리된 데이터가 있으면 그것을 사용, 없으면 원본 사용
+    df = st.session_state.get('df_processed', st.session_state.df)
     
     st.header("전체 통계 정보")
+    
+    # 전처리 상태 알림
+    if 'df_processed' in st.session_state:
+        converted_cols = [col for col in df.columns if st.session_state.get(f'converted_{col}', False)]
+        if converted_cols:
+            st.info(f"📊 전처리된 데이터 기준입니다. 변환된 컬럼: {', '.join(converted_cols)}")
     
     # 기본 메트릭
     col1, col2, col3, col4 = st.columns(4)
@@ -44,12 +51,20 @@ def render_overall_stats_tab():
     with st.expander("📋 열별 상세 정보"):
         col_info = []
         for col in df.columns:
-            col_info.append({
+            col_data = {
                 '열 이름': col,
                 '타입': str(df[col].dtype),
                 '결측값': df[col].isnull().sum(),
                 '고유값': df[col].nunique(),
                 '결측률': f"{df[col].isnull().sum() / len(df) * 100:.1f}%"
-            })
+            }
+            
+            # 변환된 컬럼 표시
+            if st.session_state.get(f'converted_{col}', False):
+                col_data['상태'] = '✅ 변환됨'
+            else:
+                col_data['상태'] = ''
+            
+            col_info.append(col_data)
         
         st.dataframe(col_info)
