@@ -1155,7 +1155,7 @@ def render_substitution_section(df: pd.DataFrame):
                 # 다중 선택
                 selected_values = st.multiselect(
                     "치환할 값 선택",
-                    options=sorted(unique_values),
+                    options=sorted(unique_values, key=str),
                     default=[],
                     key="selected_values"
                 )
@@ -1184,7 +1184,7 @@ def render_substitution_section(df: pd.DataFrame):
                 patterns = []
                 for i in range(num_patterns):
                     with st.expander(f"패턴 {i+1}", expanded=True):
-                        col_a, col_b = st.columns([3, 2])
+                        col_a, col_b, col_c = st.columns([2, 2, 1])
                         with col_a:
                             pattern = st.text_input(
                                 "패턴 (정규식)",
@@ -1198,9 +1198,27 @@ def render_substitution_section(df: pd.DataFrame):
                                 value="수도권" if i == 0 else "",
                                 key=f"pattern_value_{i}"
                             )
+                        with col_c:
+                            mode = st.radio(
+                                "교체 방식",
+                                ["전체", "부분"],
+                                key=f"pattern_mode_{i}",
+                                help="전체: 값 전체를 교체\n부분: 매칭 부분만 교체"
+                            )
                         
                         if pattern and value:
-                            patterns.append({'pattern': pattern, 'value': value})
+                            patterns.append({
+                                'pattern': pattern, 
+                                'value': value,
+                                'mode': 'whole' if mode == "전체" else 'partial'
+                            })
+                
+                # 예시 표시
+                st.info("""
+                **교체 방식 예시:**
+                - 전체 교체: '서울시 노원구' → '수도권' (패턴 '서울' 포함 시)
+                - 부분 교체: '서울시 노원구' → 'oo시 노원구' (패턴 '서울' → 'oo')
+                """)
                 
                 params['patterns'] = patterns
                 substitution_type = "pattern"
@@ -1284,11 +1302,22 @@ def render_substitution_section(df: pd.DataFrame):
         st.error(f"미리보기 생성 중 오류: {str(e)}")
     
     # 적용 버튼
+# 적용 버튼
     if st.button("✅ 적용", type="primary", key="apply_substitution"):
         try:
-            # 치환 적용
             from modules.de_identification.substitution import SubstitutionProcessor
             
+            # 숫자형 → 문자형 변환 경고
+            if is_numeric and substitution_type == "numeric":
+                with st.container():
+                    st.warning(
+                        f"⚠️ **주의!** '{selected_column}' 컬럼의 숫자 데이터가 문자로 변환됩니다.\n\n"
+                        "• 수치 연산 불가\n"
+                        "• 정렬 방식 변경\n"
+                        "• 복구 어려움"
+                    )
+            
+            # 치환 실행
             processed_column = SubstitutionProcessor.substitute_column(
                 df,
                 selected_column,
