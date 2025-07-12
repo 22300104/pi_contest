@@ -30,11 +30,20 @@ def render_column_analysis_tab():
     st.session_state.selected_column_for_analysis = selected_column
     
     if selected_column:
-        # 전처리된 데이터 확인
-        if 'df_processed' in st.session_state and st.session_state.get(f'converted_{selected_column}', False):
-            df_analysis = st.session_state.df_processed
-            col_data = df_analysis[selected_column]
-            st.info(f"📊 전처리된 데이터를 사용 중입니다. (타입: {col_data.dtype})")
+        if 'df_processed' in st.session_state:
+    # df_processed에 해당 컬럼이 있고, 원본과 다르면 처리된 것으로 간주
+            if selected_column in st.session_state.df_processed.columns:
+                # 원본과 비교해서 하나라도 다르면 처리된 것
+                if not st.session_state.df[selected_column].equals(st.session_state.df_processed[selected_column]):
+                    df_analysis = st.session_state.df_processed
+                    col_data = df_analysis[selected_column]
+                    st.info(f"📊 처리된 데이터를 사용 중입니다. (타입: {col_data.dtype})")
+                else:
+                    df_analysis = df
+                    col_data = df[selected_column]
+            else:
+                df_analysis = df
+                col_data = df[selected_column]
         else:
             df_analysis = df
             col_data = df[selected_column]
