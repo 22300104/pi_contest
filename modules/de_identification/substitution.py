@@ -114,41 +114,45 @@ class SubstitutionProcessor:
         
         return result
     
+# substitution.py 파일에서 수정
+
     @staticmethod
-    def _equal_interval_substitution(
-        series: pd.Series,
-        n_intervals: int = 5,
-        labels: List[str] = None,
-        **params
+    def substitute_column(
+        df: pd.DataFrame,
+        column_name: str,
+        substitution_type: str,
+        **kwargs
     ) -> pd.Series:
-        """등간격 구간 치환"""
-        try:
-            numeric_series = pd.to_numeric(series, errors='coerce')
-        except:
-            raise ValueError("숫자형으로 변환할 수 없는 데이터가 포함되어 있습니다.")
+        """
+        데이터프레임의 특정 컬럼에 치환 적용
+        """
+        if column_name not in df.columns:
+            raise ValueError(f"컬럼 '{column_name}'을 찾을 수 없습니다.")
         
-        # 유효한 값만 사용하여 최소/최대 계산
-        valid_values = numeric_series.dropna()
-        if len(valid_values) == 0:
-            return series
+        column_data = df[column_name].copy()
         
-        min_val = valid_values.min()
-        max_val = valid_values.max()
+        # NULL 값 인덱스 저장
+        null_mask = column_data.isna()
         
-        # 등간격으로 구간 생성
-        bins = np.linspace(min_val, max_val, n_intervals + 1)
+        # 치환 타입별 처리
+        if substitution_type == "numeric":
+            result = SubstitutionProcessor._numeric_substitution(column_data, **kwargs)
+        elif substitution_type == "categorical":
+            result = SubstitutionProcessor._categorical_substitution(column_data, **kwargs)
+        elif substitution_type == "pattern":
+            result = SubstitutionProcessor._pattern_substitution(column_data, **kwargs)
+        else:
+            raise ValueError(f"알 수 없는 치환 타입: {substitution_type}")
         
-        # 라벨 생성
-        if labels is None:
-            labels = [f"구간{i+1}" for i in range(n_intervals)]
-        elif len(labels) != n_intervals:
-            raise ValueError(f"라벨 개수({len(labels)})가 구간 개수({n_intervals})와 일치하지 않습니다.")
+        # ⭐ 중요: 결과를 명시적으로 문자열로 변환
+        if substitution_type in ["numeric", "pattern"]:
+            result = result.astype(str)
         
-        # pd.cut을 사용하여 구간 분할
-        result = pd.cut(numeric_series, bins=bins, labels=labels, include_lowest=True)
-        
-        # 문자열로 변환
-        return result.astype(str)
+        # NULL 값 복원 (옵션에 따라)
+        if kwargs.get('preserve_null', True):
+            result[null_mask] = np.nan
+    
+        return result
     
     @staticmethod
     def _quantile_interval_substitution(
