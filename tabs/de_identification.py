@@ -1210,25 +1210,40 @@ def render_substitution_section(df: pd.DataFrame):
                 
                 unique_values = df[selected_column].dropna().unique()
                 
-                if len(unique_values) > 20:
-                    st.warning(f"고유값이 {len(unique_values)}개로 많습니다. 처음 20개만 표시합니다.")
-                    display_values = sorted(unique_values)[:20]
+                # 스크롤 가능한 영역으로 변경
+                if len(unique_values) > 10:
+                    st.warning(f"고유값이 {len(unique_values)}개로 많습니다.")
+                    
+                    # Expander 내부에 스크롤 적용
+                    with st.expander(f"📝 전체 값 매핑 ({len(unique_values)}개 항목)", expanded=True):
+                        # 이 expander 내부에만 스크롤 적용
+                        st.markdown("""
+                            <style>
+                            div[data-testid="stExpander"] div[data-testid="stVerticalBlock"]:has(input) {
+                                max-height: 400px;
+                                overflow-y: auto;
+                                padding-right: 10px;
+                            }
+                            </style>
+                        """, unsafe_allow_html=True)
+                        
+                        mappings = {}
+                        # 모든 값 표시 (20개 제한 제거)
+                        for val in sorted(unique_values):
+                            new_val = st.text_input(
+                                f"{val} →", 
+                                value=str(val), 
+                                key=f"map_{val}"
+                            )
+                            if new_val != str(val):
+                                mappings[val] = new_val
                 else:
-                    display_values = sorted(unique_values)
-                
-                mappings = {}
-                for val in display_values:
-                    new_val = st.text_input(f"{val} →", value=str(val), key=f"map_{val}")
-                    if new_val != str(val):
-                        mappings[val] = new_val
-                
-                # 표시되지 않은 값들 처리
-                if len(unique_values) > 20:
-                    default_value = st.text_input("표시되지 않은 값들을 다음으로 치환:", value="기타", key="unlisted_default")
-                    params['default_value'] = default_value
-                
-                params['mappings'] = mappings
-                substitution_type = "categorical"
+                    # 10개 이하는 그냥 표시
+                    mappings = {}
+                    for val in sorted(unique_values):
+                        new_val = st.text_input(f"{val} →", value=str(val), key=f"map_{val}")
+                        if new_val != str(val):
+                            mappings[val] = new_val
     
     # 미리보기
     st.markdown("### 미리보기")

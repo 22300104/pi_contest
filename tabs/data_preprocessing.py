@@ -37,7 +37,12 @@ def render_type_conversion_section(df):
             '현재 타입': display_df.dtypes.astype(str),
             '샘플 데이터': [display_df[col].dropna().head(1).values[0] if len(display_df[col].dropna()) > 0 else 'N/A' for col in display_df.columns]
         })
-        st.dataframe(type_df, height=400)
+    
+    # 동적 높이 설정 (10개 이하는 전체 표시, 그 이상은 스크롤)
+    if len(type_df) > 10:
+        st.dataframe(type_df, height=400, use_container_width=True)
+    else:
+        st.dataframe(type_df, use_container_width=True)
     
     with col2:
         st.markdown("### 숫자형 변환 가능 컬럼")

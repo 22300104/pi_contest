@@ -156,15 +156,18 @@ class DataDetector:
         
         # 빈도분석
         elif stat_type == "빈도분석":
-            value_counts = col_data.value_counts()
-            total = len(col_data)
-            result = {}
-            # 최대 20개까지만 표시
-            for i, (val, count) in enumerate(value_counts.head(20).items()):
-                result[f"{str(val)[:20]}"] = f"{count:,} ({count/total*100:.1f}%)"
+            value_counts = df[column].value_counts()
+            
+            # 20개 이상일 때 DataFrame으로 반환하여 자동 스크롤
             if len(value_counts) > 20:
-                result['...'] = f"(총 {len(value_counts)}개 항목)"
-            return result
+                freq_df = pd.DataFrame({
+                    '값': value_counts.index,
+                    '빈도': value_counts.values,
+                    '비율(%)': (value_counts.values / len(df) * 100).round(2)
+                })
+                return freq_df  # DataFrame은 자동으로 스크롤 처리됨
+            else:
+                return value_counts.to_dict()
         
         # 상위카테고리
         elif stat_type == "상위카테고리":
