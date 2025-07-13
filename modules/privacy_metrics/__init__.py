@@ -5,5 +5,6 @@
 """
 
 from .k_anonymity import KAnonymityAnalyzer
+from .utility_metrics import UtilityMetrics
 
-__all__ = ['KAnonymityAnalyzer']
+__all__ = ['KAnonymityAnalyzer', 'UtilityMetrics']
