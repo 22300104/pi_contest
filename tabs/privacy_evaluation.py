@@ -1,4 +1,4 @@
-# privacy_evaluation.py
+# privacy_evaluation.py (개선 버전)
 
 import streamlit as st
 import pandas as pd
@@ -411,57 +411,90 @@ def create_k_distribution_chart(k_distribution: Dict[int, int], threshold: int):
         st.success(f"✅ 모든 그룹이 k ≥ {threshold}를 만족합니다.")
 
 def render_utility_evaluation_section(_: pd.DataFrame):
-    """유용성 평가 탭 – 리뉴얼 + 버그 수정 버전"""
+    """유용성 평가 탭 – 개선된 버전"""
     st.subheader("📈 유용성 평가")
     
-    # 지표 메타 정보
+    # 지표 메타 정보 (개선된 임계값)
     METRIC_INFO = {
-        'U1': ('평균값 차이',
-            '두 데이터셋 평균값이 얼마나 다른지 측정 (0에 가까울수록 좋음)'),
-        'U2': ('상관계수 보존',
-            '원본·비식별 상관계수 차이 평균 (0에 가까울수록 좋음)'),
-        'U3': ('코사인 유사도',
-            '벡터 유사도 평균 (1에 가까울수록 좋음)'),
-        'U4': ('정규화 거리',
-            '정규화 SSE 합 (0에 가까울수록 좋음)'),
-        'U5': ('표준화 거리',
-            '표준화 SSE 합 (0에 가까울수록 좋음)'),
-        'U6': ('동질집합 분산',
-            '동질집합 내 민감값 분산 평균 (낮을수록 정보 유지)'),
-        'U7': ('정규화 집합크기',
-            '(N/N_EC)/k : 동질집합 크기 지표 (낮을수록 안전)'),
-        'U8': ('비균일 엔트로피',
-            '변경 레코드 엔트로피 (0에 가까울수록 원본과 유사)'),
-        'U9': ('익명화율',
-            '비식별 데이터가 얼마나 남았는지 (%) (높을수록 활용 ↑)'),
+        'U1': {
+            'name': '평균값 차이',
+            'desc': '두 데이터셋 평균값이 얼마나 다른지 측정 (0에 가까울수록 좋음)',
+            'thresholds': {'excellent': 0.05, 'good': 0.1, 'fair': 0.5},
+            'lower_better': True
+        },
+        'U2': {
+            'name': '상관계수 보존',
+            'desc': '원본·비식별 상관계수 차이 평균 (0에 가까울수록 좋음)',
+            'thresholds': {'excellent': 0.01, 'good': 0.05, 'fair': 0.1},
+            'lower_better': True
+        },
+        'U3': {
+            'name': '코사인 유사도',
+            'desc': '벡터 유사도 평균 (1에 가까울수록 좋음)',
+            'thresholds': {'excellent': 0.99, 'good': 0.95, 'fair': 0.9},
+            'lower_better': False
+        },
+        'U4': {
+            'name': '정규화 거리',
+            'desc': '정규화 SSE 합 (0에 가까울수록 좋음)',
+            'thresholds': {'excellent': 0.01, 'good': 0.05, 'fair': 0.1},
+            'lower_better': True
+        },
+        'U5': {
+            'name': '표준화 거리',
+            'desc': '표준화 SSE 합 (0에 가까울수록 좋음)',
+            'thresholds': {'excellent': 0.1, 'good': 0.5, 'fair': 1.0},
+            'lower_better': True
+        },
+        'U6': {
+            'name': '동질집합 분산',
+            'desc': '동질집합 내 민감값 분산 평균 (낮을수록 정보 유지)',
+            'thresholds': {'excellent': 0.5, 'good': 1.0, 'fair': 2.0},
+            'lower_better': True
+        },
+        'U7': {
+            'name': '정규화 집합크기',
+            'desc': '(N/N_EC)/k : 동질집합 크기 지표 (낮을수록 안전)',
+            'thresholds': {'excellent': 1.0, 'good': 2.0, 'fair': 5.0},
+            'lower_better': True
+        },
+        'U8': {
+            'name': '비균일 엔트로피',
+            'desc': '변경 레코드 엔트로피 (0에 가까울수록 원본과 유사)',
+            'thresholds': {'excellent': 0.1, 'good': 0.3, 'fair': 0.5},
+            'lower_better': True
+        },
+        'U9': {
+            'name': '익명화율',
+            'desc': '비식별 데이터가 얼마나 남았는지 (%) (높을수록 활용 ↑)',
+            'thresholds': {'excellent': 95, 'good': 90, 'fair': 80},
+            'lower_better': False
+        },
     }
     
     # 도움말 토글
     show_help = st.toggle("👶 처음이라면 도움말 보기", value=False)
     if show_help:
-        md = "**유용성(U) 지표란?**  \n"
-        for k, (name, desc) in METRIC_INFO.items():
-            md += f"• **{k} {name}** : {desc}  \n"
-        st.info(md)
+        st.info("**유용성(U) 지표란?**\n\n" + 
+                "\n".join([f"• **{k} ({v['name']})** : {v['desc']}" 
+                          for k, v in METRIC_INFO.items()]))
 
     # 1. 데이터 존재 확인
     if 'df' not in st.session_state or 'df_processed' not in st.session_state:
-        st.warning("먼저 데이터를 업로드·비식별화 해 주세요.")
+        st.warning("먼저 데이터를 업로드하고 비식별화를 완료해주세요.")
         return
 
     orig_df = st.session_state.df
     proc_df = st.session_state.df_processed
 
-    # 3. 타입 비교 기준 & 컬럼 목록
-    type_ref = st.radio(
-        "타입 비교 기준", ["원본 데이터", "변환 후 데이터"],
-        index=0, horizontal=True
-    )
-    base_df = orig_df if type_ref == "원본 데이터" else proc_df
-    numeric_cols = base_df.select_dtypes(include='number').columns.tolist()
-    all_cols = base_df.columns.tolist()
+    # 2. 무조건 변환된 데이터 타입 사용
+    st.info("📌 변환된 데이터의 타입을 기준으로 평가합니다.")
+    
+    # 변환된 데이터 기준으로 컬럼 분류
+    numeric_cols = proc_df.select_dtypes(include='number').columns.tolist()
+    all_cols = proc_df.columns.tolist()
 
-    # 4. 평가 대상 컬럼
+    # 3. 평가 대상 컬럼
     if 'util_cols' not in st.session_state:
         st.session_state.util_cols = numeric_cols
 
@@ -491,27 +524,17 @@ def render_utility_evaluation_section(_: pd.DataFrame):
         return
     sel_num = [c for c in sel_cols if c in numeric_cols]
 
-    # 원본 vs 변환후 기준에 맞춰 숫자 변환 & UtilityMetrics 준비
-    from modules.preprocessor import DataPreprocessor
-    pre = DataPreprocessor()
-
-    base_orig = orig_df.copy()
-    if type_ref == "변환 후 데이터":
-        for col in sel_cols:
-            if base_orig[col].dtype == "object":
-                converted, _ = pre.safe_type_conversion(base_orig[col], "numeric")
-                base_orig[col] = converted
-
+    # UtilityMetrics 준비
     from modules.privacy_metrics.utility_metrics import UtilityMetrics
     utility_analyzer = UtilityMetrics(orig_df, proc_df) 
 
-    # 5. 지표 선택 & QI 옵션
+    # 4. 지표 선택 & QI 옵션
     st.markdown("### ② 지표 선택")
     
     metrics = st.multiselect(
         "실행할 지표", list(METRIC_INFO.keys()),
         default=['U1', 'U2', 'U9'],
-        format_func=lambda m: f"{m} – {METRIC_INFO[m][0]}"
+        format_func=lambda m: f"{m} – {METRIC_INFO[m]['name']}"
     )
 
     # 선택한 지표 설명 패널
@@ -519,8 +542,8 @@ def render_utility_evaluation_section(_: pd.DataFrame):
         with st.container():
             st.markdown("#### 선택 지표 설명")
             for m in metrics:
-                st.markdown(f"**{m} – {METRIC_INFO[m][0]}**  \n"
-                            f"{METRIC_INFO[m][1]}")
+                st.markdown(f"**{m} – {METRIC_INFO[m]['name']}**  \n"
+                            f"{METRIC_INFO[m]['desc']}")
     
     qi_cols, sens_attr = [], None
     if any(m in metrics for m in ('U6', 'U7')):
@@ -531,7 +554,7 @@ def render_utility_evaluation_section(_: pd.DataFrame):
                 if cand:
                     sens_attr = st.selectbox("민감속성", cand)
 
-    # 6. 샘플링
+    # 5. 샘플링
     st.markdown("### ③ 샘플링")
     use_samp = st.toggle("샘플링 사용", value=True)
     samp_rows = st.slider(
@@ -540,34 +563,64 @@ def render_utility_evaluation_section(_: pd.DataFrame):
     )
     analysis_df = orig_df.sample(samp_rows, random_state=42) if use_samp and samp_rows < len(orig_df) else orig_df
 
-    # 7. 실행
+    # 6. 실행
     st.markdown("### ④ 평가 실행")
-    if st.button("🚀 Run selected metrics", type="primary"):
+    if st.button("🚀 선택한 지표 실행", type="primary"):
         run_id = uuid.uuid4().hex[:8]
         summary, detail_results = [], {}
         prog = st.progress(0.0)
         total = len(metrics)
 
-        # 결과 리스트에 행 추가하는 헬퍼
+        # 결과 리스트에 행 추가하는 헬퍼 (개선)
         def push(metric: str, res: dict, used_cols: list):
             """summary·detail 두 곳에 결과를 저장"""
+            metric_info = METRIC_INFO[metric]
+            
+            # U2 상관계수는 특별 처리
+            if metric == 'U2' and res.get('status') == 'success':
+                # 전체 점수
+                score = res.get('total_score', 0)
+                summary.append({
+                    '지표': metric,
+                    '지표명': metric_info['name'],
+                    '컬럼': "전체 상관계수",
+                    '점수': round(score, 4) if isinstance(score, (int, float)) else score,
+                    '평가': get_score_badge(metric, score, METRIC_INFO)
+                })
+                
+                # 개별 쌍 결과
+                if 'pair_results' in res:
+                    for pair, pair_res in res['pair_results'].items():
+                        summary.append({
+                            '지표': metric,
+                            '지표명': metric_info['name'],
+                            '컬럼': pair,
+                            '점수': round(pair_res['difference'], 4),
+                            '평가': get_score_badge(metric, pair_res['difference'], METRIC_INFO)
+                        })
+            
             # 컬럼별 점수를 분해해서 보여줘야 하는 지표
-            if metric in ('U1', 'U3', 'U4', 'U5') and res.get('status') == 'success':
+            elif metric in ('U1', 'U3', 'U4', 'U5') and res.get('status') == 'success':
                 for col, det in res['column_results'].items():
                     if 'error' in det:
                         continue
                     val = det.get('difference') or det.get('cosine_similarity') \
                           or det.get('normalized_sse') or det.get('sse')
                     summary.append({
-                        '지표': metric, '컬럼': col,
-                        '점수': round(val, 4) if isinstance(val, (int, float)) else val
+                        '지표': metric,
+                        '지표명': metric_info['name'],
+                        '컬럼': col,
+                        '점수': round(val, 4) if isinstance(val, (int, float)) else val,
+                        '평가': get_score_badge(metric, val, METRIC_INFO)
                     })
             else:
                 score = res.get('total_score') or res.get('average_score')
                 summary.append({
                     '지표': metric,
+                    '지표명': metric_info['name'],
                     '컬럼': ", ".join(used_cols) if used_cols else '-',
-                    '점수': round(score, 4) if isinstance(score, (int, float)) else score
+                    '점수': round(score, 4) if isinstance(score, (int, float)) else score,
+                    '평가': get_score_badge(metric, score, METRIC_INFO)
                 })
             detail_results[metric] = res
 
@@ -605,102 +658,72 @@ def render_utility_evaluation_section(_: pd.DataFrame):
             'detail':  detail_results,
         })
 
-    # 8. 결과 표시
-    # ---------- 카드용 배지 & 해석 함수 ---------- #
-    def badge(metric: str, val: float) -> tuple[str, str]:
-        """점수 → (이모지 배지, 해석 문자열)"""
-        if metric == "U1":                       # 평균값 차이 (작을수록 좋음)
-            if val < 0.1:  return "🟢", "거의 차이 없음"
-            if val < 1.0:  return "🟡", "차이 있지만 양호"
-            return "🔴", "평균값 차이 큼"
-
-        if metric == "U2":                       # 상관계수 차이 (작을수록 좋음)
-            if val < 0.02: return "🟢", "상관관계 잘 보존"
-            if val < 0.10: return "🟡", "다소 손상"
-            return "🔴", "상관관계 크게 손상"
-
-        if metric == "U3":                       # 코사인 유사도 (클수록 좋음)
-            if val > 0.98: return "🟢", "거의 동일"
-            if val > 0.90: return "🟡", "대체로 유사"
-            return "🔴", "유사도 낮음"
-
-        if metric == "U9":                       # 익명화율 (클수록 좋음)
-            if val > 90:  return "🟢", "데이터 대부분 보존"
-            if val > 70:  return "🟡", "적당히 보존"
-            return "🔴", "많이 손실"
-
-        return "⚪", "참고값"                    # 나머지 지표
-
+    # 7. 결과 표시 (개선)
     if st.session_state.get("util_history"):
         latest = st.session_state.util_history[-1]
         st.markdown(f"### ⑤ 결과 요약 ({latest['time']})")
 
-        # A. 카드용 해석 함수
-        def verdict(metric: str, value) -> str:
-            """점수를 초보자용 배지 텍스트로 변환"""
-            if not isinstance(value, (int, float)):
-                return "⚪ 참고값"
-
-            good = "🟢 매우 유사"
-            ok   = "🟢 양호"
-
-            if metric == "U1" and value < 0.1:
-                return good
-            elif metric == "U2" and value < 0.05:
-                return good
-            elif metric == "U3" and value > 0.95:
-                return good
-            elif metric in ["U4", "U5"] and value < 0.05:
-                return ok
-            elif metric == "U9" and value > 90:
-                return "🟢 활용도 ↑"
-            
-            return "⚪ 참고값"
-
-        # B. 주요 메트릭 카드
-        # ---------- 주요 메트릭 카드 ---------- #
+        # A. 주요 메트릭 카드
         card_metrics = ["U1", "U2", "U3", "U9"]
         cols = st.columns(len(card_metrics))
 
         for col, m in zip(cols, card_metrics):
+            # 해당 지표의 첫 번째 결과 찾기
             row = next((r for r in latest["summary"] if r["지표"] == m), None)
             if not row:
                 col.empty()
                 continue
 
-            emoji, expl = badge(m, row["점수"])          # ← 새 함수 호출
+            # 색상과 아이콘 결정
+            badge = row['평가']
+            emoji = badge.split()[0] if badge else "⚪"
+            
             col.metric(
-                label=f"{m} {emoji}",
-                value=row["점수"],
-                help=expl                                # 마우스 오버 시 해석
+                label=f"{m} - {METRIC_INFO[m]['name']}",
+                value=f"{row['점수']} {emoji}",
+                help=badge
             )
 
-        # C. 요약표
-        df_sum = (
-            pd.DataFrame(latest["summary"])[["지표", "컬럼", "점수"]]
-              .sort_values(["지표", "컬럼"])
-        )
-        st.dataframe(df_sum, hide_index=True, use_container_width=True)
+        # B. 개선된 요약표
+        df_sum = pd.DataFrame(latest["summary"])
+        
+        # 컬럼 순서 조정
+        display_cols = ['지표', '지표명', '컬럼', '점수', '평가']
+        df_sum = df_sum[display_cols]
+        
+        # 스타일 적용
+        styled_df = df_sum.style.apply(lambda x: [
+            'background-color: #e8f5e9' if '🟢' in str(v) else
+            'background-color: #fff3e0' if '🟡' in str(v) else
+            'background-color: #ffebee' if '🔴' in str(v) else ''
+            for v in x
+        ], axis=1)
+        
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
 
-        # D. 상세 결과
-        for r in latest["summary"]:
-            with st.expander(f"🔍 {r['지표']} – {r['컬럼']}"):
-                st.json(latest["detail"][r["지표"]])
+        # C. 상세 결과
+        with st.expander("🔍 상세 결과 보기"):
+            for metric in latest["detail"]:
+                st.markdown(f"#### {metric} - {METRIC_INFO[metric]['name']}")
+                st.json(latest["detail"][metric])
 
-        # E. 다운로드
-        st.download_button(
-            "⬇️ 요약 CSV",
-            df_sum.to_csv(index=False, encoding="utf-8-sig").encode(),
-            "utility_summary.csv",
-        )
-        st.download_button(
-            "⬇️ 상세 JSON",
-            json.dumps(latest["detail"], ensure_ascii=False, indent=2).encode("utf-8"),
-            "utility_detail.json",
-            mime="application/json",
-        )
+        # D. 다운로드
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                "⬇️ 요약 CSV",
+                df_sum.to_csv(index=False, encoding="utf-8-sig").encode(),
+                "utility_summary.csv",
+            )
+        with col2:
+            st.download_button(
+                "⬇️ 상세 JSON",
+                json.dumps(latest["detail"], ensure_ascii=False, indent=2).encode("utf-8"),
+                "utility_detail.json",
+                mime="application/json",
+            )
 
-        # F. 실행 히스토리
+        # E. 실행 히스토리
         with st.expander("🕑 실행 히스토리"):
             for h in reversed(st.session_state.util_history):
                 if st.button(f"{h['time']} ({h['rows']} rows)", key=h["id"]):
@@ -711,3 +734,34 @@ def render_utility_evaluation_section(_: pd.DataFrame):
                         )
                     )
                     st.rerun()
+
+def get_score_badge(metric: str, value: Any, metric_info: Dict) -> str:
+    """점수를 평가하여 배지 반환"""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return "⚪ 평가 불가"
+    
+    if not isinstance(value, (int, float)):
+        return "⚪ 비수치"
+    
+    info = metric_info[metric]
+    thresholds = info['thresholds']
+    lower_better = info['lower_better']
+    
+    if lower_better:
+        if value <= thresholds['excellent']:
+            return "🟢 우수"
+        elif value <= thresholds['good']:
+            return "🟡 양호"
+        elif value <= thresholds['fair']:
+            return "🟠 보통"
+        else:
+            return "🔴 주의"
+    else:
+        if value >= thresholds['excellent']:
+            return "🟢 우수"
+        elif value >= thresholds['good']:
+            return "🟡 양호"
+        elif value >= thresholds['fair']:
+            return "🟠 보통"
+        else:
+            return "🔴 주의"
