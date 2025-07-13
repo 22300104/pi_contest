@@ -606,6 +606,31 @@ def render_utility_evaluation_section(_: pd.DataFrame):
         })
 
     # 8. 결과 표시
+    # ---------- 카드용 배지 & 해석 함수 ---------- #
+    def badge(metric: str, val: float) -> tuple[str, str]:
+        """점수 → (이모지 배지, 해석 문자열)"""
+        if metric == "U1":                       # 평균값 차이 (작을수록 좋음)
+            if val < 0.1:  return "🟢", "거의 차이 없음"
+            if val < 1.0:  return "🟡", "차이 있지만 양호"
+            return "🔴", "평균값 차이 큼"
+
+        if metric == "U2":                       # 상관계수 차이 (작을수록 좋음)
+            if val < 0.02: return "🟢", "상관관계 잘 보존"
+            if val < 0.10: return "🟡", "다소 손상"
+            return "🔴", "상관관계 크게 손상"
+
+        if metric == "U3":                       # 코사인 유사도 (클수록 좋음)
+            if val > 0.98: return "🟢", "거의 동일"
+            if val > 0.90: return "🟡", "대체로 유사"
+            return "🔴", "유사도 낮음"
+
+        if metric == "U9":                       # 익명화율 (클수록 좋음)
+            if val > 90:  return "🟢", "데이터 대부분 보존"
+            if val > 70:  return "🟡", "적당히 보존"
+            return "🔴", "많이 손실"
+
+        return "⚪", "참고값"                    # 나머지 지표
+
     if st.session_state.get("util_history"):
         latest = st.session_state.util_history[-1]
         st.markdown(f"### ⑤ 결과 요약 ({latest['time']})")
@@ -633,16 +658,22 @@ def render_utility_evaluation_section(_: pd.DataFrame):
             return "⚪ 참고값"
 
         # B. 주요 메트릭 카드
+        # ---------- 주요 메트릭 카드 ---------- #
         card_metrics = ["U1", "U2", "U3", "U9"]
         cols = st.columns(len(card_metrics))
+
         for col, m in zip(cols, card_metrics):
             row = next((r for r in latest["summary"] if r["지표"] == m), None)
-            if row:
-                col.metric(
-                    label=m,
-                    value=row["점수"],
-                    help=verdict(m, row["점수"])
-                )
+            if not row:
+                col.empty()
+                continue
+
+            emoji, expl = badge(m, row["점수"])          # ← 새 함수 호출
+            col.metric(
+                label=f"{m} {emoji}",
+                value=row["점수"],
+                help=expl                                # 마우스 오버 시 해석
+            )
 
         # C. 요약표
         df_sum = (
