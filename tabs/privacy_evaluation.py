@@ -129,26 +129,35 @@ def render_k_anonymity_section(df: pd.DataFrame):
             # 표시할 레코드 수
             show_records = st.slider("그룹당 표시할 레코드 수", 1, 10, 3)
             
-            if st.button("동질집합 미리보기", key="preview_ec"):
-                # 동질집합 생성
-                ec_groups = analysis_df.groupby(selected_qi)
-                
-                # 각 그룹의 크기 계산
-                ec_sizes = ec_groups.size().reset_index(name='k')
-                ec_sizes = ec_sizes.sort_values('k', ascending=(preview_option == "k값이 낮은 위험 그룹"))
-                
-                # 미리보기 생성
-                preview_groups = []
-                
-                if preview_option == "상위 5개 그룹":
-                    # 크기가 큰 순서대로 5개
-                    top_groups = ec_sizes.nlargest(5, 'k')
-                elif preview_option == "k값이 낮은 위험 그룹":
-                    # k값이 작은 순서대로 5개
-                    top_groups = ec_sizes.nsmallest(5, 'k')
-                else:  # 랜덤 샘플
-                    # 랜덤하게 5개
-                    top_groups = ec_sizes.sample(min(5, len(ec_sizes)))
+            if st.button("동질집합 확인하기", key="preview_ec_k"):
+                with st.spinner("동질집합 분석 중..."):
+                    # 샘플링 제거 - df를 직접 사용
+                    preview_df = df
+                    
+                    # 동질집합 생성
+                    ec_groups = preview_df.groupby(selected_qi)
+                    
+                    # 각 그룹의 크기 계산
+                    ec_sizes = ec_groups.size().reset_index(name='k')
+                    
+                    if len(ec_sizes) == 0:
+                        st.warning("동질집합을 생성할 수 없습니다.")
+                    else:
+                        # 정렬 옵션에 따라 정렬
+                        if preview_option == "k값이 낮은 위험 그룹":
+                            ec_sizes = ec_sizes.sort_values('k', ascending=True)
+                            top_groups = ec_sizes.head(5)
+                        elif preview_option == "상위 5개 그룹":
+                            ec_sizes = ec_sizes.sort_values('k', ascending=False)
+                            top_groups = ec_sizes.head(5)
+                        else:  # 랜덤
+                            top_groups = ec_sizes.sample(min(5, len(ec_sizes)))
+                        
+                        # k값 순서 정렬 옵션 추가
+                        sort_by_k = st.checkbox("k값 순서로 정렬", value=True, key="sort_by_k")
+                        if sort_by_k and preview_option != "랜덤 샘플":
+                            ascending = preview_option == "k값이 낮은 위험 그룹"
+                            top_groups = top_groups.sort_values('k', ascending=ascending)
                 
                 # 각 그룹의 샘플 표시
                 for idx, (_, group_info) in enumerate(top_groups.iterrows()):
@@ -425,7 +434,6 @@ def render_utility_evaluation_section(df: pd.DataFrame):
         
         st.markdown("---")
         
-        # Step 1: 평가할 컬럼 선택
         st.markdown("### 📌 Step 1: 평가할 데이터 항목 선택하기")
         
         st.info("""
@@ -437,10 +445,66 @@ def render_utility_evaluation_section(df: pd.DataFrame):
         - 📅 **날짜 데이터**: 생년월일, 가입일 등 (숫자로 변환하여 평가)
         """)
         
-        # 컬럼 타입별로 분류
-        numeric_cols = original_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        categorical_cols = original_df.select_dtypes(include=['object', 'category']).columns.tolist()
-        datetime_cols = original_df.select_dtypes(include=['datetime64']).columns.tolist()
+        # 데이터 타입 기준 옵션
+        with st.expander("⚙️ 데이터 타입 판단 옵션", expanded=False):
+            type_reference = st.radio(
+                "데이터 타입 판단 기준",
+                [
+                    "처리된 데이터 기준 (권장)",
+                    "원본 데이터 기준",
+                    "통합 (원본 또는 처리후 중 하나라도 해당하면 포함)"
+                ],
+                index=0,
+                help="""
+                - **처리된 데이터 기준**: 데이터 타입 변환 후의 타입으로 판단 (예: 문자→숫자 변환한 경우 숫자로 인식)
+                - **원본 데이터 기준**: 원본 데이터의 타입으로만 판단
+                - **통합**: 가장 유연한 옵션으로, 둘 중 하나라도 조건을 만족하면 포함
+                """,
+                key="type_reference"
+            )
+            
+            # 타입이 변경된 컬럼 감지 및 표시
+            type_changed_cols = []
+            for col in original_df.columns:
+                if col in processed_df.columns:
+                    orig_type = str(original_df[col].dtype)
+                    proc_type = str(processed_df[col].dtype)
+                    if orig_type != proc_type:
+                        type_changed_cols.append({
+                            'column': col,
+                            'original': orig_type,
+                            'processed': proc_type
+                        })
+            
+            if type_changed_cols:
+                st.info("💡 다음 컬럼의 데이터 타입이 변경되었습니다:")
+                for change in type_changed_cols:
+                    st.write(f"- **{change['column']}**: {change['original']} → {change['processed']}")
+        
+        # 선택에 따라 타입 분류
+        if type_reference == "처리된 데이터 기준 (권장)":
+            numeric_cols = processed_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+            categorical_cols = processed_df.select_dtypes(include=['object', 'category']).columns.tolist()
+            datetime_cols = processed_df.select_dtypes(include=['datetime64']).columns.tolist()
+            
+        elif type_reference == "원본 데이터 기준":
+            numeric_cols = original_df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+            categorical_cols = original_df.select_dtypes(include=['object', 'category']).columns.tolist()
+            datetime_cols = original_df.select_dtypes(include=['datetime64']).columns.tolist()
+            
+        else:  # 통합
+            # 원본이나 처리후 중 하나라도 해당 타입이면 포함
+            orig_numeric = set(original_df.select_dtypes(include=['int64', 'float64']).columns)
+            proc_numeric = set(processed_df.select_dtypes(include=['int64', 'float64']).columns)
+            numeric_cols = list(orig_numeric | proc_numeric)
+            
+            orig_categorical = set(original_df.select_dtypes(include=['object', 'category']).columns)
+            proc_categorical = set(processed_df.select_dtypes(include=['object', 'category']).columns)
+            categorical_cols = list(orig_categorical | proc_categorical)
+            
+            orig_datetime = set(original_df.select_dtypes(include=['datetime64']).columns)
+            proc_datetime = set(processed_df.select_dtypes(include=['datetime64']).columns)
+            datetime_cols = list(orig_datetime | proc_datetime)
         
         # 준식별자 가져오기 (있다면)
         quasi_identifiers = []
