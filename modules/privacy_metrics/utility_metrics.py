@@ -154,8 +154,12 @@ class UtilityMetrics:
             return results
         
         # 상관계수 계산
-        orig_corr = self.original_df[numeric_cols].corr()
-        anon_corr = self.anonymized_df[numeric_cols].corr()
+        # ---- 문자열·기호 → NaN 치환 후 상관계수 ------------------
+        orig_num = self.original_df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+        anon_num = self.anonymized_df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+        orig_corr = orig_num.corr()
+        anon_corr = anon_num.corr()
+
         
         total_diff = 0.0
         pair_count = 0
