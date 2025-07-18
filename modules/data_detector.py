@@ -53,15 +53,15 @@ class DataDetector:
         
         elif main_type == "categorical":
             if sub_type == "nominal":
-                return ["빈도분석", "상위카테고리", "희소카테고리", "비율분석"]
+                return ["빈도분석", "상위카테고리", "희소카테고리", "비율분석", "엔트로피"]  # 🔴 추가
             elif sub_type == "ordinal":
-                return ["빈도분석", "상위카테고리", "순서통계", "비율분석"]
+                return ["빈도분석", "상위카테고리", "순서통계", "비율분석", "엔트로피"]  # 🔴 추가
             elif sub_type == "binary":
-                return ["이진분포", "비율분석"]
+                return ["이진분포", "비율분석", "엔트로피"]  # 🔴 추가
         
         elif main_type == "text":
             if sub_type == "short":
-                return ["빈도분석", "텍스트통계", "패턴분석"]
+                return ["빈도분석", "텍스트통계", "패턴분석", "엔트로피"]  # 🔴 추가
             elif sub_type == "long":
                 return ["텍스트통계", "패턴분석", "단어통계"]
         
@@ -169,6 +169,39 @@ class DataDetector:
             else:
                 return value_counts.to_dict()
         
+
+            # 🔴 엔트로피 통계 추가 (빈도분석 다음에 추가)
+        elif stat_type == "엔트로피":
+            value_counts = col_data.value_counts()
+            
+            if len(value_counts) > 0:
+                # 확률 계산
+                probabilities = value_counts / len(col_data)
+                
+                # 엔트로피 계산: H = -Σ p_i * log2(p_i)
+                entropy = 0
+                for p in probabilities:
+                    if p > 0:  # log(0) 방지
+                        entropy -= p * np.log2(p)
+                
+                # 최대 엔트로피 (모든 값이 동일 확률일 때)
+                max_entropy = np.log2(len(value_counts))
+                
+                # 정규화된 엔트로피 (0~1 범위)
+                normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
+                
+                return {
+                    '엔트로피 (H)': f"{entropy:.4f} bits",
+                    '최대 가능 엔트로피': f"{max_entropy:.4f} bits",
+                    '정규화 엔트로피': f"{normalized_entropy:.4f}",
+                    '고유값 수': f"{len(value_counts)}개",
+                    '해석': self._interpret_entropy(normalized_entropy)
+                }
+            else:
+                return {'오류': '데이터가 없습니다'}
+    
+
+    
         # 상위카테고리
         elif stat_type == "상위카테고리":
             value_counts = col_data.value_counts()
@@ -553,3 +586,16 @@ class DataDetector:
         plt.tight_layout()
         
         return fig
+    
+    def _interpret_entropy(self, normalized_entropy: float) -> str:
+        """정규화된 엔트로피 값 해석"""
+        if normalized_entropy < 0.3:
+            return "매우 낮음 (데이터가 특정 값에 집중)"
+        elif normalized_entropy < 0.5:
+            return "낮음 (일부 값이 우세)"
+        elif normalized_entropy < 0.7:
+            return "중간 (적당한 다양성)"
+        elif normalized_entropy < 0.9:
+            return "높음 (값이 고르게 분포)"
+        else:
+            return "매우 높음 (거의 균등 분포)"

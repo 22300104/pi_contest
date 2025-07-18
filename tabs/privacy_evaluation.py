@@ -84,6 +84,41 @@ def render_k_anonymity_section(df: pd.DataFrame):
         # 분석 옵션
         st.markdown("### 분석 옵션")
         
+        # 🔴 표본률 입력 추가
+        st.markdown("#### 📊 표본률 설정")
+        sample_rate = st.number_input(
+            "표본률 (f)",
+            min_value=0.001,
+            max_value=1.0,
+            value=1.0,
+            step=0.01,
+            format="%.3f",
+            help="전체 모집단 대비 현재 데이터의 비율 (1.0 = 전체 데이터)"
+        )
+        
+        # 표본률에 따른 설명
+        if sample_rate < 1.0:
+            st.info(f"📌 현재 데이터는 전체 모집단의 {sample_rate*100:.1f}%입니다")
+        else:
+            st.info("📌 전체 모집단 데이터로 분석합니다")
+        
+            # 🔴 표본률 입력 추가
+    st.markdown("#### 📊 표본률 설정")
+    sample_rate = st.number_input(
+        "표본률 (f)",
+        min_value=0.001,
+        max_value=1.0,
+        value=1.0,
+        step=0.01,
+        format="%.3f",
+        help="전체 모집단 대비 현재 데이터의 비율 (1.0 = 전체 데이터)"
+    )
+    
+    # 표본률에 따른 설명
+    if sample_rate < 1.0:
+        st.info(f"📌 현재 데이터는 전체 모집단의 {sample_rate*100:.1f}%입니다")
+    else:
+        st.info("📌 전체 모집단 데이터로 분석합니다")
         # 샘플링 옵션 (대용량 데이터 대응)
         data_size = len(df)
         if data_size > 100000:
@@ -239,6 +274,169 @@ def render_k_anonymity_section(df: pd.DataFrame):
     
     st.markdown("---")
     
+
+
+    # privacy_evaluation.py의 render_k_anonymity_section 함수 내
+    # "동질집합 미리보기" 섹션 다음에 추가
+
+    with st.expander("📊 EC별 통계 분석", expanded=False):
+        st.info("""
+        **EC별 통계 분석이란?**
+        각 동질집합(EC)별로 선택한 속성들의 통계를 계산합니다.
+        - 수치형: 평균, 표준편차, 최소/최대값
+        - 범주형: 고유값 수, 엔트로피, 최빈값
+        """)
+        
+        # 통계 대상 컬럼 선택
+        all_cols = df.columns.tolist()
+        available_cols = [col for col in all_cols if col not in selected_qi]
+        
+        target_cols = st.multiselect(
+            "통계를 계산할 속성 선택",
+            available_cols,
+            help="준식별자를 제외한 속성들을 선택하세요",
+            key="ec_stat_target_cols"
+        )
+        
+        if target_cols:
+            # EC 필터 옵션
+            use_filter = st.checkbox("특정 EC만 조회", key="ec_filter_check")
+            
+            ec_selection = None
+            if use_filter:
+                st.markdown("**조회할 EC 조건 입력**")
+                ec_filters = []
+                
+                # 각 준식별자별 필터 입력
+                filter_cols = st.columns(len(selected_qi))
+                for i, qi in enumerate(selected_qi):
+                    with filter_cols[i]:
+                        # 해당 컬럼의 고유값 가져오기
+                        unique_vals = df[qi].dropna().unique()
+                        
+                        if len(unique_vals) <= 20:
+                            # 값이 적으면 선택박스
+                            selected_val = st.selectbox(
+                                f"{qi}",
+                                ["전체"] + list(unique_vals),
+                                key=f"ec_filter_{qi}"
+                            )
+                            if selected_val != "전체":
+                                ec_filters.append({qi: selected_val})
+                        else:
+                            # 값이 많으면 텍스트 입력
+                            input_val = st.text_input(
+                                f"{qi}",
+                                placeholder="값 입력",
+                                key=f"ec_filter_input_{qi}"
+                            )
+                            if input_val:
+                                # 숫자 변환 시도
+                                try:
+                                    if df[qi].dtype in ['int64', 'float64']:
+                                        ec_filters.append({qi: float(input_val)})
+                                    else:
+                                        ec_filters.append({qi: input_val})
+                                except:
+                                    ec_filters.append({qi: input_val})
+                
+                # 필터 조합
+                if ec_filters:
+                    ec_selection = [dict(pair for d in ec_filters for pair in d.items())]
+            
+            # 통계 계산 버튼
+            if st.button("📊 EC별 통계 계산", key="calc_ec_stats"):
+                with st.spinner("EC별 통계 계산 중..."):
+                    try:
+                        # 통계 계산
+                        ec_stats_df = calculate_ec_statistics(
+                            df=df,
+                            ec_cols=selected_qi,
+                            target_cols=target_cols,
+                            ec_selection=ec_selection
+                        )
+                        
+                        if len(ec_stats_df) == 0:
+                            st.warning("조건에 맞는 EC가 없습니다.")
+                        else:
+                            # 결과 표시
+                            st.success(f"✅ {len(ec_stats_df)}개 EC에 대한 통계 계산 완료!")
+                            
+                            # 요약 정보
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("전체 EC 수", f"{len(ec_stats_df):,}개")
+                            with col2:
+                                avg_size = ec_stats_df['EC_SIZE'].mean()
+                                st.metric("평균 EC 크기", f"{avg_size:.1f}")
+                            with col3:
+                                total_records = ec_stats_df['EC_SIZE'].sum()
+                                st.metric("총 레코드 수", f"{total_records:,}")
+                            
+                            # 통계 테이블 표시
+                            st.markdown("### 📊 EC별 통계 결과")
+                            
+                            # 표시할 컬럼 선택
+                            display_cols = selected_qi + ['EC_SIZE']
+                            for target_col in target_cols:
+                                # 해당 target_col 관련 통계 컬럼들 추가
+                                stat_cols = [col for col in ec_stats_df.columns if col.startswith(f'{target_col}_')]
+                                display_cols.extend(stat_cols)
+                            
+                            # 데이터프레임 표시
+                            st.dataframe(
+                                ec_stats_df[display_cols],
+                                use_container_width=True,
+                                height=400
+                            )
+                            
+                            # 다운로드 버튼
+                            csv = ec_stats_df.to_csv(index=False, encoding='utf-8-sig')
+                            st.download_button(
+                                label="📥 CSV 다운로드",
+                                data=csv.encode('utf-8-sig'),
+                                file_name=f"ec_statistics_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                                mime="text/csv"
+                            )
+                            
+                            # 세션 상태에 저장
+                            if 'ec_statistics' not in st.session_state:
+                                st.session_state.ec_statistics = {}
+                            st.session_state.ec_statistics['latest'] = {
+                                'df': ec_stats_df,
+                                'ec_cols': selected_qi,
+                                'target_cols': target_cols,
+                                'timestamp': pd.Timestamp.now()
+                            }
+                            
+                                                        # EC별 엔트로피 분포 시각화
+                            if any(col.endswith('_entropy') for col in ec_stats_df.columns):
+                                with st.expander("📈 엔트로피 분포 시각화", expanded=False):
+                                    entropy_cols = [col for col in ec_stats_df.columns if col.endswith('_entropy')]
+                                    
+                                    for ent_col in entropy_cols:
+                                        fig, ax = plt.subplots(figsize=(8, 4))
+                                        
+                                        # 히스토그램
+                                        ec_stats_df[ent_col].hist(bins=20, ax=ax, edgecolor='black', alpha=0.7)
+                                        ax.set_xlabel('엔트로피')
+                                        ax.set_ylabel('EC 수')
+                                        ax.set_title(f'{ent_col.replace("_entropy", "")} 엔트로피 분포')
+                                        
+                                        # 평균선 추가
+                                        mean_entropy = ec_stats_df[ent_col].mean()
+                                        ax.axvline(mean_entropy, color='red', linestyle='--', 
+                                                label=f'평균: {mean_entropy:.3f}')
+                                        ax.legend()
+                                        
+                                        st.pyplot(fig)
+                                        plt.close()
+                    
+                    except Exception as e:
+                        st.error(f"통계 계산 중 오류 발생: {str(e)}")
+                        st.exception(e)
+
+
     # k-익명성 분석 실행 버튼
     if st.button("🔍 k-익명성 분석 실행", type="primary", disabled=len(selected_qi) == 0):
         if len(selected_qi) == 0:
@@ -257,15 +455,17 @@ def render_k_anonymity_section(df: pd.DataFrame):
                 k_value, k_stats = calculate_k_anonymity(
                     analysis_df,
                     selected_qi,
-                    k_threshold
+                    k_threshold,
+                    sample_rate  # 🔴 추가
                 )
                 
                 # 결과 표시
                 st.markdown("### 📊 분석 결과")
                 
-                # 주요 지표 표시
-                col_a, col_b, col_c, col_d = st.columns(4)
-                
+
+                # 주요 지표 표시 (🔴 EMP 추가로 5개 컬럼으로 변경)
+                col_a, col_b, col_c, col_d, col_e = st.columns(5)
+
                 with col_a:
                     st.metric(
                         "최소 k값",
@@ -273,19 +473,19 @@ def render_k_anonymity_section(df: pd.DataFrame):
                         delta=f"{k_stats['min_k'] - k_threshold}" if k_stats['min_k'] < k_threshold else None,
                         delta_color="inverse"
                     )
-                
+
                 with col_b:
                     st.metric(
                         "평균 k값",
                         f"{k_stats['avg_k']:.1f}"
                     )
-                
+
                 with col_c:
                     st.metric(
                         "중앙값",
                         f"{k_stats['median_k']}"
                     )
-                
+
                 with col_d:
                     risk_ratio = k_stats['risk_records'] / len(analysis_df) * 100
                     st.metric(
@@ -294,6 +494,55 @@ def render_k_anonymity_section(df: pd.DataFrame):
                         delta=f"{risk_ratio:.1f}%",
                         delta_color="inverse"
                     )
+
+                # 🔴 EMP 메트릭 추가
+                with col_e:
+                    emp_value = k_stats['emp']
+                    emp_percent = emp_value * 100
+                    st.metric(
+                        "EMP",
+                        f"{emp_percent:.2f}%",
+                        delta=k_stats['emp_risk_level'],
+                        delta_color="inverse" if emp_value > 0.05 else "normal"
+                    )
+
+                # 🔴 EMP 상세 정보 추가
+                st.markdown("### 🎯 EMP (Expected Match Probability) 분석")
+                emp_col1, emp_col2, emp_col3 = st.columns(3)
+
+                with emp_col1:
+                    st.info(f"""
+                    **EMP 값**: {k_stats['emp']:.6f} ({k_stats['emp']*100:.3f}%)
+                    **위험 수준**: {k_stats['emp_risk_level']}
+                    """)
+
+                with emp_col2:
+                    st.info(f"""
+                    **표본률**: {k_stats['sample_rate']}
+                    **평균 개인 위험도**: {k_stats['avg_individual_risk']:.4f}
+                    """)
+
+                with emp_col3:
+                    st.info(f"""
+                    **고위험 레코드**: {k_stats['high_risk_records']:,}개
+                    **전체 위험도 합**: {k_stats['total_risk_sum']:.2f}
+                    """)
+
+                # EMP 해석 가이드
+                with st.expander("💡 EMP 해석 가이드", expanded=False):
+                    st.markdown("""
+                    **EMP(Expected Match Probability)**는 데이터셋에서 개인이 재식별될 기대 확률입니다.
+                    
+                    - **< 1%**: 매우 안전 (재식별 위험 매우 낮음)
+                    - **1-5%**: 안전 (재식별 위험 낮음)
+                    - **5-10%**: 주의 필요 (중간 수준 위험)
+                    - **10-20%**: 위험 (재식별 위험 높음)
+                    - **> 20%**: 매우 위험 (즉시 조치 필요)
+                    
+                    **계산 방법**: Skinner-Elliot 모델 기반
+                    - 개별 위험도 = 1 / (표본률 × EC크기)
+                    - EMP = (표본률 / 전체레코드수) × Σ개별위험도
+                    """)
                 
                 # k값 분포 시각화
                 st.markdown("### 📈 k값 분포")
@@ -312,8 +561,20 @@ def render_k_anonymity_section(df: pd.DataFrame):
                             st.info(f"전체 {len(risk_df)}개 중 상위 100개만 표시됩니다.")
                 
                 # 분석 정보 저장 (다른 탭에서 사용)
+                                
                 if 'privacy_analysis' not in st.session_state:
                     st.session_state.privacy_analysis = {}
+
+                st.session_state.privacy_analysis['k_anonymity'] = {
+                    'quasi_identifiers': selected_qi,
+                    'k_value': k_value,
+                    'k_stats': k_stats,
+                    'threshold': k_threshold,
+                    'sampled': use_sampling,
+                    'sample_rate': sample_rate,  # 🔴 추가
+                    'emp': k_stats['emp'],  # 🔴 추가
+                    'emp_risk_level': k_stats['emp_risk_level']  # 🔴 추가
+}
                 
                 st.session_state.privacy_analysis['k_anonymity'] = {
                     'quasi_identifiers': selected_qi,
@@ -334,13 +595,21 @@ def render_k_anonymity_section(df: pd.DataFrame):
 def calculate_k_anonymity(
         df: pd.DataFrame,
         quasi_identifiers: List[str],
-        k_threshold: int = 5
+        k_threshold: int = 5,
+        sample_rate: float = 1.0  # 🔴 새 파라미터 추가
 ) -> Tuple[int, Dict]:
     """
-    선택한 준식별자에 대해 k-익명성 통계 계산
-    Returns
+    선택한 준식별자에 대해 k-익명성 통계 및 EMP 계산
+    
+    Args:
+        df: 데이터프레임
+        quasi_identifiers: 준식별자 리스트
+        k_threshold: k값 임계값
+        sample_rate: 표본률 (f값, 0 < f <= 1)
+    
+    Returns:
         k_value : 전체 데이터의 최소 k
-        k_stats : 상세 통계 딕셔너리
+        k_stats : 상세 통계 딕셔너리 (EMP 포함)
     """
     # 1) 동질집합 크기 계산
     group_sizes = (
@@ -358,8 +627,50 @@ def calculate_k_anonymity(
         on=quasi_identifiers,
         how='inner'
     )
+    
+    # 🔴 3) EMP 계산 추가
+    # EMP 계산을 위한 개별 위험도 계산
+    n = len(df)  # 전체 레코드 수
+    total_risk = 0.0
+    
+    # 각 레코드의 EC 크기를 찾아서 위험도 계산
+    for _, row in df.iterrows():
+        # 해당 레코드가 속한 EC 찾기
+        ec_condition = True
+        for qi in quasi_identifiers:
+            ec_condition &= (group_sizes[qi] == row[qi])
+        
+        # EC 크기 찾기 (더 효율적인 방법)
+        ec_match = group_sizes
+        for qi in quasi_identifiers:
+            ec_match = ec_match[ec_match[qi] == row[qi]]
+        
+        if len(ec_match) > 0:
+            ec_size = ec_match.iloc[0]['count']
+            # Skinner-Elliot 공식: risk_i = 1 / (f * |EC_i|)
+            risk_i = 1 / (sample_rate * ec_size)
+            if risk_i > 1:
+                risk_i = 1  # 위험도는 최대 1
+            total_risk += risk_i
+    
+    # 더 효율적인 방법: merge를 사용
+    # 각 레코드에 EC 크기 정보 추가
+    df_with_ec_size = df.merge(
+        group_sizes.rename(columns={'count': 'ec_size'}),
+        on=quasi_identifiers,
+        how='left'
+    )
+    
+    # 각 레코드의 위험도 계산
+    df_with_ec_size['risk_i'] = 1 / (sample_rate * df_with_ec_size['ec_size'])
+    df_with_ec_size['risk_i'] = df_with_ec_size['risk_i'].clip(upper=1)  # 최대값 1로 제한
+    
+    total_risk = df_with_ec_size['risk_i'].sum()
+    
+    # EMP = (f / N) * Σ risk_i
+    emp = (sample_rate / n) * total_risk
 
-    # 3) 통계 딕셔너리 작성
+    # 4) 통계 딕셔너리 작성
     k_stats = {
         'min_k': k_value,
         'max_k': int(group_sizes['count'].max()),
@@ -370,10 +681,31 @@ def calculate_k_anonymity(
                           .sort_index()
                           .to_dict(),
         'risk_records': len(risk_records_detail),
-        'risk_records_detail': risk_records_detail
+        'risk_records_detail': risk_records_detail,
+        # 🔴 EMP 관련 통계 추가
+        'emp': emp,
+        'sample_rate': sample_rate,
+        'total_risk_sum': total_risk,
+        'avg_individual_risk': total_risk / n,
+        'high_risk_records': len(df_with_ec_size[df_with_ec_size['risk_i'] >= 0.5]),  # 위험도 50% 이상
+        'emp_risk_level': get_emp_risk_level(emp)  # 위험 수준 평가
     }
 
     return k_value, k_stats
+
+# 🔴 EMP 위험 수준 평가 함수 추가
+def get_emp_risk_level(emp: float) -> str:
+    """EMP 값에 따른 위험 수준 평가"""
+    if emp < 0.01:
+        return "매우 낮음"
+    elif emp < 0.05:
+        return "낮음"
+    elif emp < 0.1:
+        return "중간"
+    elif emp < 0.2:
+        return "높음"
+    else:
+        return "매우 높음"
 
 def create_k_distribution_chart(k_distribution: Dict[int, int], threshold: int):
     """k값 분포 차트 생성 (Streamlit 내장 차트 사용)"""
@@ -734,6 +1066,102 @@ def render_utility_evaluation_section(_: pd.DataFrame):
                         )
                     )
                     st.rerun()
+
+def calculate_ec_statistics(df: pd.DataFrame, ec_cols: List[str], target_cols: List[str], 
+                          ec_selection: List[Dict] = None) -> pd.DataFrame:
+    """
+    EC별 통계 계산
+    
+    Args:
+        df: 전체 데이터프레임
+        ec_cols: EC(동질집합) 기준 컬럼 리스트
+        target_cols: 통계 산출 대상 컬럼 리스트
+        ec_selection: 선택한 EC 조합 (옵션)
+    
+    Returns:
+        EC별 통계가 포함된 DataFrame
+    """
+    import scipy.stats as stats
+    
+    # 1. 결측값 처리 옵션
+    df_clean = df.copy()
+    
+    # 2. EC별 그룹화
+    ec_groups = df_clean.groupby(ec_cols)
+    
+    # 3. 결과 저장을 위한 리스트
+    results = []
+    
+    # 4. 각 EC에 대해 통계 계산
+    for ec_values, group in ec_groups:
+        row_data = {}
+        
+        # EC 식별자 추가
+        if isinstance(ec_values, tuple):
+            for i, col in enumerate(ec_cols):
+                row_data[col] = ec_values[i]
+        else:
+            row_data[ec_cols[0]] = ec_values
+        
+        # EC 크기
+        row_data['EC_SIZE'] = len(group)
+        
+        # 각 target column에 대한 통계
+        for target_col in target_cols:
+            if target_col not in group.columns:
+                continue
+                
+            col_data = group[target_col].dropna()
+            
+            # 데이터 타입 확인
+            if pd.api.types.is_numeric_dtype(col_data):
+                # 수치형 통계
+                row_data[f'{target_col}_mean'] = col_data.mean() if len(col_data) > 0 else None
+                row_data[f'{target_col}_std'] = col_data.std() if len(col_data) > 1 else None
+                row_data[f'{target_col}_min'] = col_data.min() if len(col_data) > 0 else None
+                row_data[f'{target_col}_max'] = col_data.max() if len(col_data) > 0 else None
+                row_data[f'{target_col}_count'] = len(col_data)
+            else:
+                # 범주형 통계
+                row_data[f'{target_col}_nunique'] = col_data.nunique()
+                
+                # 최빈값
+                if len(col_data) > 0:
+                    mode_result = col_data.mode()
+                    row_data[f'{target_col}_mode'] = mode_result[0] if len(mode_result) > 0 else None
+                    row_data[f'{target_col}_mode_ratio'] = (col_data == row_data[f'{target_col}_mode']).sum() / len(col_data)
+                
+                # 엔트로피 계산
+                value_counts = col_data.value_counts()
+                if len(value_counts) > 1:
+                    probabilities = value_counts / len(col_data)
+                    entropy = -sum(p * np.log2(p) for p in probabilities if p > 0)
+                    row_data[f'{target_col}_entropy'] = entropy
+                else:
+                    row_data[f'{target_col}_entropy'] = 0.0
+        
+        results.append(row_data)
+    
+    # DataFrame으로 변환
+    result_df = pd.DataFrame(results)
+    
+    # EC_SIZE로 정렬
+    result_df = result_df.sort_values('EC_SIZE', ascending=True)
+    
+    # EC 선택 필터링 (옵션)
+    if ec_selection:
+        # 선택한 EC만 필터링
+        mask = pd.Series([False] * len(result_df))
+        for selection in ec_selection:
+            condition = pd.Series([True] * len(result_df))
+            for col, val in selection.items():
+                if col in result_df.columns:
+                    condition &= (result_df[col] == val)
+            mask |= condition
+        result_df = result_df[mask]
+    
+    return result_df
+
 
 def get_score_badge(metric: str, value: Any, metric_info: Dict) -> str:
     """점수를 평가하여 배지 반환"""
