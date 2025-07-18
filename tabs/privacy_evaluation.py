@@ -223,7 +223,7 @@ def render_ec_statistics_section(df: pd.DataFrame):
     
     with col2:
         # 샘플링 옵션
-        if len(df) > 50000:
+        if len(df) > 5000:
             use_sampling = st.checkbox(
                 "샘플링 사용",
                 value=True,
@@ -236,15 +236,34 @@ def render_ec_statistics_section(df: pd.DataFrame):
         if use_sampling:
             sample_size = st.number_input(
                 "샘플 크기",
-                min_value=10000,
+                min_value=100,
                 max_value=len(df),
                 value=min(50000, len(df)),
-                step=10000,
+                step=100,
                 key="ec_sample_size"
             )
     
     # 실행 버튼
     if st.button("📊 EC별 통계 계산 실행", type="primary", use_container_width=True):
+        
+        # 예상 EC 수와 시간 계산
+        expected_ecs = df.groupby(selected_qi).ngroups
+        analysis_rows = sample_size if use_sampling else len(df)
+        
+        # 예상 시간 (EC당 약 0.01초 + 오버헤드)
+        estimated_time = max(1, expected_ecs * 0.01 + 2)
+        
+        if expected_ecs > 5000:
+            st.warning(f"""
+            ⚠️ **대용량 분석 경고**
+            - 예상 EC 수: {expected_ecs:,}개
+            - 예상 소요 시간: {estimated_time:.0f}초
+            - 권장: 샘플링 사용 또는 준식별자 수 감소
+            """)
+            if not st.checkbox("계속 진행", key="ec_continue"):
+                st.stop()
+        
+        # 데이터 검증
         
         # 데이터 검증
         if data_check:
@@ -1255,98 +1274,94 @@ def render_utility_evaluation_section(_: pd.DataFrame):
 def calculate_ec_statistics(df: pd.DataFrame, ec_cols: List[str], target_cols: List[str], 
                           ec_selection: List[Dict] = None) -> pd.DataFrame:
     """
-    EC별 통계 계산
-    
-    Args:
-        df: 전체 데이터프레임
-        ec_cols: EC(동질집합) 기준 컬럼 리스트
-        target_cols: 통계 산출 대상 컬럼 리스트
-        ec_selection: 선택한 EC 조합 (옵션)
-    
-    Returns:
-        EC별 통계가 포함된 DataFrame
+    최적화된 EC별 통계 계산
     """
     import scipy.stats as stats
     
-    # 1. 결측값 처리 옵션
-    df_clean = df.copy()
+    # 1. 데이터 타입 최적화
+    df_optimized = df[ec_cols + target_cols].copy()
     
-    # 2. EC별 그룹화
-    ec_groups = df_clean.groupby(ec_cols)
+    # 2. 수치형/범주형 컬럼 분리 (미리 계산)
+    numeric_targets = [col for col in target_cols 
+                      if pd.api.types.is_numeric_dtype(df_optimized[col])]
+    categorical_targets = [col for col in target_cols 
+                          if col not in numeric_targets]
     
-    # 3. 결과 저장을 위한 리스트
+    # 3. 벡터화된 계산을 위한 준비
     results = []
     
-    # 4. 각 EC에 대해 통계 계산
-    for ec_values, group in ec_groups:
+    # 진행 상황 표시
+    progress_bar = st.progress(0)
+    total_groups = df_optimized.groupby(ec_cols).ngroups
+    
+    # 4. 대용량 데이터 경고 및 샘플링 제안
+    if total_groups > 10000:
+        st.warning(f"⚠️ EC가 {total_groups:,}개로 매우 많습니다. 샘플링 사용을 권장합니다.")
+    
+    # 5. 그룹별 계산 (최적화)
+    for idx, (ec_values, group) in enumerate(df_optimized.groupby(ec_cols)):
+        if idx % 100 == 0:  # 100개마다 진행상황 업데이트
+            progress_bar.progress(min(idx / total_groups, 0.99))
+        
         row_data = {}
         
-        # EC 식별자 추가
+        # EC 식별자
         if isinstance(ec_values, tuple):
             for i, col in enumerate(ec_cols):
                 row_data[col] = ec_values[i]
         else:
             row_data[ec_cols[0]] = ec_values
         
-        # EC 크기
         row_data['EC_SIZE'] = len(group)
         
-        # 각 target column에 대한 통계
-        for target_col in target_cols:
-            if target_col not in group.columns:
-                continue
-                
-            col_data = group[target_col].dropna()
+        # 벡터화된 수치형 통계 계산
+        if numeric_targets:
+            numeric_data = group[numeric_targets]
+            stats_dict = numeric_data.agg(['mean', 'std', 'min', 'max', 'count']).to_dict()
             
-            # 데이터 타입 확인
-            if pd.api.types.is_numeric_dtype(col_data):
-                # 수치형 통계
-                row_data[f'{target_col}_mean'] = col_data.mean() if len(col_data) > 0 else None
-                row_data[f'{target_col}_std'] = col_data.std() if len(col_data) > 1 else None
-                row_data[f'{target_col}_min'] = col_data.min() if len(col_data) > 0 else None
-                row_data[f'{target_col}_max'] = col_data.max() if len(col_data) > 0 else None
-                row_data[f'{target_col}_count'] = len(col_data)
-            else:
-                # 범주형 통계
-                row_data[f'{target_col}_nunique'] = col_data.nunique()
+            for col in numeric_targets:
+                if col in stats_dict:
+                    row_data[f'{col}_mean'] = stats_dict[col].get('mean')
+                    row_data[f'{col}_std'] = stats_dict[col].get('std')
+                    row_data[f'{col}_min'] = stats_dict[col].get('min')
+                    row_data[f'{col}_max'] = stats_dict[col].get('max')
+                    row_data[f'{col}_count'] = stats_dict[col].get('count')
+        
+        # 범주형 통계 (최적화)
+        for col in categorical_targets:
+            col_data = group[col].dropna()
+            if len(col_data) > 0:
+                # nunique
+                row_data[f'{col}_nunique'] = col_data.nunique()
                 
-                # 최빈값
-                if len(col_data) > 0:
-                    mode_result = col_data.mode()
-                    row_data[f'{target_col}_mode'] = mode_result[0] if len(mode_result) > 0 else None
-                    row_data[f'{target_col}_mode_ratio'] = (col_data == row_data[f'{target_col}_mode']).sum() / len(col_data)
-                
-                # 엔트로피 계산
+                # 최빈값 (value_counts 활용)
                 value_counts = col_data.value_counts()
-                if len(value_counts) > 1:
-                    probabilities = value_counts / len(col_data)
-                    entropy = -sum(p * np.log2(p) for p in probabilities if p > 0)
-                    row_data[f'{target_col}_entropy'] = entropy
-                else:
-                    row_data[f'{target_col}_entropy'] = 0.0
+                if len(value_counts) > 0:
+                    row_data[f'{col}_mode'] = value_counts.index[0]
+                    row_data[f'{col}_mode_ratio'] = value_counts.iloc[0] / len(col_data)
+                    
+                    # 엔트로피 (벡터화)
+                    if len(value_counts) > 1:
+                        probs = value_counts / len(col_data)
+                        row_data[f'{col}_entropy'] = -(probs * np.log2(probs)).sum()
+                    else:
+                        row_data[f'{col}_entropy'] = 0.0
         
         results.append(row_data)
+        
+        # 메모리 관리: 큰 그룹 처리 후 가비지 컬렉션
+        if idx % 1000 == 0 and idx > 0:
+            import gc
+            gc.collect()
     
-    # DataFrame으로 변환
+    progress_bar.progress(1.0)
+    progress_bar.empty()
+    
+    # DataFrame 변환 및 정렬
     result_df = pd.DataFrame(results)
-    
-    # EC_SIZE로 정렬
     result_df = result_df.sort_values('EC_SIZE', ascending=True)
     
-    # EC 선택 필터링 (옵션)
-    if ec_selection:
-        # 선택한 EC만 필터링
-        mask = pd.Series([False] * len(result_df))
-        for selection in ec_selection:
-            condition = pd.Series([True] * len(result_df))
-            for col, val in selection.items():
-                if col in result_df.columns:
-                    condition &= (result_df[col] == val)
-            mask |= condition
-        result_df = result_df[mask]
-    
     return result_df
-
 
 def display_ec_statistics_results(ec_stats_df: pd.DataFrame, selected_qi: List[str], target_cols: List[str]):
     """EC 통계 결과 표시 (최적화)"""
