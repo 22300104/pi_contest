@@ -1407,304 +1407,348 @@ def render_data_export():
                 st.info("비교 기능은 준비 중입니다")
 
 def render_hashing_section(df: pd.DataFrame):
-    """해시 처리 섹션 렌더링"""
-    st.subheader("🔐 해시 처리")
-    
-    # 강력한 경고 메시지
-    st.error("""
-    ⚠️ **매우 중요한 경고!**
-    
-    해시는 **절대 되돌릴 수 없습니다**:
-    • 원본 데이터는 영구적으로 손실됩니다
-    • 실수로 적용해도 복구가 불가능합니다
-    • 반드시 원본 데이터를 백업하세요
-    
-    해시 후에는:
-    • ✅ 같은 값 비교 가능 (그룹화, 조인)
-    • ❌ 원본값 복구 불가
-    • ❌ 수치 연산 불가
-    • ❌ 부분 검색 불가
-    """)
-    
-    # 동의 체크박스
-    confirm = st.checkbox("⚠️ 위 내용을 완전히 이해했으며, 해시 적용에 동의합니다", key="hash_confirm")
-    
-    if not confirm:
-        st.warning("해시를 적용하려면 위 경고 내용에 동의해야 합니다.")
-        return
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # 해시 방식 선택
-        hash_mode = st.radio(
-            "해시 방식",
-            ["단일 컬럼 해시", "복수 컬럼 조합 해시"],
-            help="단일: 각 컬럼을 개별적으로 해시\n조합: 여러 컬럼을 합쳐서 하나의 해시값 생성"
-        )
-        
-        if hash_mode == "단일 컬럼 해시":
-            selected_columns = st.multiselect(
-                "해시할 컬럼 선택",
-                df.columns.tolist(),
-                help="여러 컬럼을 선택하면 각각 해시됩니다"
-            )
-            hash_type = 'single'
-        else:
-            selected_columns = st.multiselect(
-                "조합할 컬럼 선택 (순서 중요)",
-                df.columns.tolist(),
-                help="선택한 순서대로 조합하여 하나의 해시값을 만듭니다"
-            )
-            hash_type = 'combined'
-            
-            if len(selected_columns) > 1:
-                separator = st.text_input("구분자", value="|", max_chars=5, help="컬럼 값을 조합할 때 사용할 구분자")
-            else:
-                separator = "|"
-    
-    with col2:
-        # 해시 알고리즘 선택
-        st.markdown("### 해시 설정")
-        
-        algorithm_display = st.selectbox(
-            "해시 알고리즘",
-            ["SHA-256 (권장)", "SHA-512", "Blake2b", "MD5 (권장하지 않음)"],
-            help="SHA-256이 일반적으로 가장 적절합니다"
-        )
-        
-        # 알고리즘 매핑
-        algorithm_map = {
-            "SHA-256 (권장)": "sha256",
-            "SHA-512": "sha512",
-            "Blake2b": "blake2b",
-            "MD5 (권장하지 않음)": "md5"
-        }
-        algorithm = algorithm_map[algorithm_display]
-        
-        # MD5 선택 시 추가 경고
-        if algorithm == "md5":
-            st.warning("⚠️ MD5는 보안이 취약합니다. 특별한 이유가 없다면 SHA-256을 사용하세요.")
-        
-        # Salt 옵션
-        st.markdown("### Salt 설정")
-        salt_type_display = st.radio(
-            "Salt 사용",
-            ["사용 안 함", "전역 Salt (권장)", "개별 Salt"],
-            help="Salt를 사용하면 사전 공격을 방지할 수 있습니다"
-        )
-        
-        salt_type_map = {
-            "사용 안 함": "none",
-            "전역 Salt (권장)": "global",
-            "개별 Salt": "individual"
-        }
-        salt_type = salt_type_map[salt_type_display]
-        
-        salt_value = None
-        if salt_type == "global":
-            salt_option = st.radio("Salt 값", ["자동 생성", "직접 입력"], horizontal=True)
-            if salt_option == "직접 입력":
-                salt_value = st.text_input("Salt 값 입력", type="password", help="이 값을 잃어버리면 같은 해시를 재현할 수 없습니다!")
-                if salt_value:
-                    st.info(f"💾 이 Salt 값을 안전하게 보관하세요: `{salt_value}`")
-            else:
-                if st.button("🎲 Salt 생성", key="generate_salt"):
-                    from modules.de_identification.hashing import HashingProcessor
-                    generated_salt = HashingProcessor.generate_salt()
-                    st.success(f"생성된 Salt: `{generated_salt}`")
-                    st.info("💾 이 값을 복사하여 안전하게 보관하세요!")
-                    salt_value = generated_salt
-        
-        elif salt_type == "individual":
-            st.warning("⚠️ 개별 Salt는 같은 값도 다른 해시가 되어 비교가 불가능합니다.")
-        
-        # 출력 형식
-        st.markdown("### 출력 형식")
-        output_format_display = st.selectbox(
-            "해시값 표시 형식",
-            ["전체 해시값", "앞부분만 (충돌 위험)", "Base64 인코딩"],
-            help="전체 해시값이 가장 안전합니다"
-        )
-        
-        output_format_map = {
-            "전체 해시값": "full",
-            "앞부분만 (충돌 위험)": "short",
-            "Base64 인코딩": "base64"
-        }
-        output_format = output_format_map[output_format_display]
-        
-        short_length = 8
-        if output_format in ["short", "base64"]:
-            short_length = st.slider("표시 길이", 4, 32, 8, 2)
-            if output_format == "short":
-                st.warning(f"⚠️ {short_length}자리만 사용하면 해시 충돌 가능성이 높아집니다.")
-    
-    # 미리보기
-    if selected_columns:
-        st.markdown("### 미리보기")
-        
-        try:
-            from modules.de_identification.hashing import HashingProcessor
-            
-            # 미리보기용 파라미터
-            preview_params = {
-                'algorithm': algorithm,
-                'salt_type': salt_type,
-                'salt_value': salt_value,
-                'output_format': output_format,
-                'short_length': short_length
-            }
-            
-            if hash_type == 'combined':
-                preview_params['separator'] = separator
-            
-            # 단일 컬럼은 첫 번째 컬럼만 미리보기
-            preview_columns = selected_columns[0] if hash_type == 'single' else selected_columns
-            
-            preview_df = HashingProcessor.get_preview(
-                df,
-                preview_columns,
-                hash_type=hash_type,
-                sample_size=5,
-                **preview_params
-            )
-            
-            st.dataframe(preview_df, use_container_width=True)
-            
-            # 통계 정보
-            if hash_type == 'single' and len(selected_columns) == 1:
-                with st.expander("📊 데이터 통계", expanded=False):
-                    stats = HashingProcessor.get_statistics(df, selected_columns[0])
-                    col_stat1, col_stat2 = st.columns(2)
-                    with col_stat1:
-                        st.metric("전체 행", f"{stats['total_rows']:,}")
-                        st.metric("고유값", f"{stats['unique_values']:,}")
-                    with col_stat2:
-                        st.metric("NULL 값", f"{stats['null_values']:,}")
-                        st.metric("중복률", f"{stats['duplicate_rate']:.1%}")
-        
-        except Exception as e:
-            st.error(f"미리보기 생성 중 오류: {str(e)}")
-    
-    # 적용 버튼
-    if selected_columns and st.button("🔐 해시 적용", type="primary", key="apply_hashing"):
-        # 최종 확인
-        final_confirm = st.checkbox(
-            f"정말로 {len(selected_columns)}개 컬럼을 해시하시겠습니까? **이 작업은 되돌릴 수 없습니다!**",
-            key="final_hash_confirm"
-        )
-        
-        if not final_confirm:
-            st.warning("최종 확인이 필요합니다.")
-            return
-        
-        try:
-            from modules.de_identification.hashing import HashingProcessor
-            
-            # 진행 상황 표시
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # 데이터프레임 준비
-            if 'df_processed' not in st.session_state:
-                st.session_state.df_processed = st.session_state.df.copy()
-            
-            # 파라미터 준비
-            hash_params = {
-                'algorithm': algorithm,
-                'salt_type': salt_type,
-                'salt_value': salt_value,
-                'output_format': output_format,
-                'short_length': short_length
-            }
-            
-            if hash_type == 'single':
-                # 단일 컬럼 해시 - 각 컬럼별로 처리
-                total_cols = len(selected_columns)
-                for i, column in enumerate(selected_columns):
-                    status_text.text(f"처리 중: {column}")
-                    progress_bar.progress((i + 1) / total_cols)
-                    
-                    hashed_series = HashingProcessor.hash_column(
-                        st.session_state.df_processed,
-                        column,
-                        **hash_params
-                    )
-                    
-                    # 해시된 컬럼으로 교체
-                    st.session_state.df_processed[column] = hashed_series
-                    
-                    # 처리 기록
-                    if 'processing_history' not in st.session_state:
-                        st.session_state.processing_history = []
-                    
-                    st.session_state.processing_history.append({
-                        'type': '해시',
-                        'column': column,
-                        'details': f"{algorithm_display}, {salt_type_display}"
-                    })
-            
-            else:  # combined
-                # 복수 컬럼 조합 해시
-                status_text.text("조합 해시 생성 중...")
-                progress_bar.progress(0.5)
-                
-                hash_params['separator'] = separator
-                
-                hashed_series = HashingProcessor.hash_combined(
-                    st.session_state.df_processed,
-                    selected_columns,
-                    **hash_params
-                )
-                
-                # 새 컬럼명 생성
-                new_column_name = f"{'_'.join(selected_columns[:2])}_조합해시"
-                if len(selected_columns) > 2:
-                    new_column_name = f"{selected_columns[0]}_외{len(selected_columns)-1}_조합해시"
-                
-                # 새 컬럼 추가
-                st.session_state.df_processed[new_column_name] = hashed_series
-                
-                # 원본 컬럼 삭제 옵션
-                if st.checkbox("원본 컬럼 삭제", value=False, key="delete_original"):
-                    for col in selected_columns:
-                        del st.session_state.df_processed[col]
-                    deleted_info = " (원본 삭제됨)"
-                else:
-                    deleted_info = ""
-                
-                # 처리 기록
-                if 'processing_history' not in st.session_state:
-                    st.session_state.processing_history = []
-                
-                st.session_state.processing_history.append({
-                    'type': '조합 해시',
-                    'column': new_column_name,
-                    'details': f"{', '.join(selected_columns)} → {algorithm_display}{deleted_info}"
-                })
-            
-            progress_bar.progress(1.0)
-            status_text.text("완료!")
-            
-            # Salt 값 저장 안내
-            if salt_type == "global" and salt_value:
-                st.success(f"""
-                ✅ 해시 적용이 완료되었습니다!
-                
-                **중요**: Salt 값을 안전하게 보관하세요
-                ```
-                {salt_value}
-                ```
-                이 값이 없으면 동일한 해시를 재현할 수 없습니다.
-                """)
-            else:
-                st.success("✅ 해시 적용이 완료되었습니다!")
-            
-            time.sleep(1)
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"해시 처리 중 오류 발생: {str(e)}")
-            progress_bar.empty()
-            status_text.empty()
+   """해시 처리 섹션 렌더링"""
+   st.subheader("🔐 해시 처리")
+   
+   # 강력한 경고 메시지
+   st.error("""
+   ⚠️ **매우 중요한 경고!**
+   
+   해시는 **절대 되돌릴 수 없습니다**:
+   • 원본 데이터는 영구적으로 손실됩니다
+   • 실수로 적용해도 복구가 불가능합니다
+   • 반드시 원본 데이터를 백업하세요
+   
+   해시 후에는:
+   • ✅ 같은 값 비교 가능 (그룹화, 조인)
+   • ❌ 원본값 복구 불가
+   • ❌ 수치 연산 불가
+   • ❌ 부분 검색 불가
+   """)
+   
+   # 동의 체크박스
+   confirm = st.checkbox("⚠️ 위 내용을 완전히 이해했으며, 해시 적용에 동의합니다", key="hash_confirm")
+   
+   if not confirm:
+       st.warning("해시를 적용하려면 위 경고 내용에 동의해야 합니다.")
+       return
+   
+   col1, col2 = st.columns(2)
+   
+   with col1:
+       # 해시 방식 선택
+       hash_mode = st.radio(
+           "해시 방식",
+           ["단일 컬럼 해시", "복수 컬럼 조합 해시"],
+           help="단일: 각 컬럼을 개별적으로 해시\n조합: 여러 컬럼을 합쳐서 하나의 해시값 생성"
+       )
+       
+       if hash_mode == "단일 컬럼 해시":
+           selected_columns = st.multiselect(
+               "해시할 컬럼 선택",
+               df.columns.tolist(),
+               help="여러 컬럼을 선택하면 각각 해시됩니다"
+           )
+           hash_type = 'single'
+       else:
+           selected_columns = st.multiselect(
+               "조합할 컬럼 선택 (순서 중요)",
+               df.columns.tolist(),
+               help="선택한 순서대로 조합하여 하나의 해시값을 만듭니다"
+           )
+           hash_type = 'combined'
+           
+           if len(selected_columns) > 1:
+               separator = st.text_input("구분자", value="|", max_chars=5, help="컬럼 값을 조합할 때 사용할 구분자")
+           else:
+               separator = "|"
+   
+   with col2:
+       # 해시 알고리즘 선택
+       st.markdown("### 해시 설정")
+       
+       algorithm_display = st.selectbox(
+           "해시 알고리즘",
+           ["SHA-256 (권장)", "SHA-512", "Blake2b", "MD5 (권장하지 않음)"],
+           help="SHA-256이 일반적으로 가장 적절합니다"
+       )
+       
+       # 알고리즘 매핑
+       algorithm_map = {
+           "SHA-256 (권장)": "sha256",
+           "SHA-512": "sha512",
+           "Blake2b": "blake2b",
+           "MD5 (권장하지 않음)": "md5"
+       }
+       algorithm = algorithm_map[algorithm_display]
+       
+       # MD5 선택 시 추가 경고
+       if algorithm == "md5":
+           st.warning("⚠️ MD5는 보안이 취약합니다. 특별한 이유가 없다면 SHA-256을 사용하세요.")
+       
+       # Salt 옵션
+       st.markdown("### Salt 설정")
+       salt_type_display = st.radio(
+           "Salt 사용",
+           ["사용 안 함", "전역 Salt (권장)", "개별 Salt"],
+           help="Salt를 사용하면 사전 공격을 방지할 수 있습니다"
+       )
+       
+       salt_type_map = {
+           "사용 안 함": "none",
+           "전역 Salt (권장)": "global",
+           "개별 Salt": "individual"
+       }
+       salt_type = salt_type_map[salt_type_display]
+       
+       salt_value = None
+       if salt_type == "global":
+           salt_option = st.radio("Salt 값", ["자동 생성", "직접 입력"], horizontal=True)
+           if salt_option == "직접 입력":
+               salt_value = st.text_input("Salt 값 입력", type="password", help="이 값을 잃어버리면 같은 해시를 재현할 수 없습니다!")
+               if salt_value:
+                   st.info(f"💾 이 Salt 값을 안전하게 보관하세요: `{salt_value}`")
+           else:
+               if st.button("🎲 Salt 생성", key="generate_salt"):
+                   from modules.de_identification.hashing import HashingProcessor
+                   generated_salt = HashingProcessor.generate_salt()
+                   st.success(f"생성된 Salt: `{generated_salt}`")
+                   st.info("💾 이 값을 복사하여 안전하게 보관하세요!")
+                   salt_value = generated_salt
+       
+       elif salt_type == "individual":
+           st.warning("⚠️ 개별 Salt는 같은 값도 다른 해시가 되어 비교가 불가능합니다.")
+       
+       # 출력 형식
+       st.markdown("### 출력 형식")
+       output_format_display = st.selectbox(
+           "해시값 표시 형식",
+           ["전체 해시값", "앞부분만 (충돌 위험)", "Base64 인코딩"],
+           help="전체 해시값이 가장 안전합니다"
+       )
+       
+       output_format_map = {
+           "전체 해시값": "full",
+           "앞부분만 (충돌 위험)": "short",
+           "Base64 인코딩": "base64"
+       }
+       output_format = output_format_map[output_format_display]
+       
+       short_length = 8
+       if output_format in ["short", "base64"]:
+           short_length = st.slider("표시 길이", 4, 32, 8, 2)
+           if output_format == "short":
+               st.warning(f"⚠️ {short_length}자리만 사용하면 해시 충돌 가능성이 높아집니다.")
+   
+   # 조합 해시인 경우 원본 삭제 옵션 미리 설정
+   if hash_type == 'combined' and selected_columns:
+       if 'delete_original_cols' not in st.session_state:
+           st.session_state.delete_original_cols = False
+       st.session_state.delete_original_cols = st.checkbox(
+           "원본 컬럼 삭제", 
+           value=st.session_state.delete_original_cols, 
+           key="delete_original_pre",
+           help="해시 후 원본 컬럼을 삭제합니다"
+       )
+   
+   # 미리보기
+   if selected_columns:
+       st.markdown("### 미리보기")
+       
+       try:
+           from modules.de_identification.hashing import HashingProcessor
+           
+           # 미리보기용 파라미터
+           preview_params = {
+               'algorithm': algorithm,
+               'salt_type': salt_type,
+               'salt_value': salt_value,
+               'output_format': output_format,
+               'short_length': short_length
+           }
+           
+           if hash_type == 'combined':
+               preview_params['separator'] = separator
+           
+           # 단일 컬럼은 첫 번째 컬럼만 미리보기
+           preview_columns = selected_columns[0] if hash_type == 'single' else selected_columns
+           
+           preview_df = HashingProcessor.get_preview(
+               df,
+               preview_columns,
+               hash_type=hash_type,
+               sample_size=5,
+               **preview_params
+           )
+           
+           st.dataframe(preview_df, use_container_width=True)
+           
+           # 통계 정보
+           if hash_type == 'single' and len(selected_columns) == 1:
+               with st.expander("📊 데이터 통계", expanded=False):
+                   stats = HashingProcessor.get_statistics(df, selected_columns[0])
+                   col_stat1, col_stat2 = st.columns(2)
+                   with col_stat1:
+                       st.metric("전체 행", f"{stats['total_rows']:,}")
+                       st.metric("고유값", f"{stats['unique_values']:,}")
+                   with col_stat2:
+                       st.metric("NULL 값", f"{stats['null_values']:,}")
+                       st.metric("중복률", f"{stats['duplicate_rate']:.1%}")
+       
+       except Exception as e:
+           st.error(f"미리보기 생성 중 오류: {str(e)}")
+   
+   # 적용 버튼 섹션
+   if selected_columns:
+       # 세션 상태 초기화
+       if 'hash_confirmation_step' not in st.session_state:
+           st.session_state.hash_confirmation_step = 0
+       
+       # 1단계: 해시 적용 버튼
+       if st.session_state.hash_confirmation_step == 0:
+           if st.button("🔐 해시 적용", type="primary", key="apply_hashing"):
+               st.session_state.hash_confirmation_step = 1
+               st.rerun()
+       
+       # 2단계: 최종 확인
+       elif st.session_state.hash_confirmation_step == 1:
+           st.warning(f"""
+           ⚠️ **최종 확인**
+           
+           정말로 {len(selected_columns)}개 컬럼을 해시하시겠습니까?
+           **이 작업은 절대 되돌릴 수 없습니다!**
+           """)
+           
+           col1, col2 = st.columns(2)
+           with col1:
+               if st.button("✅ 확인하고 진행", type="primary", key="confirm_hash"):
+                   st.session_state.hash_confirmation_step = 2
+                   st.rerun()
+           with col2:
+               if st.button("❌ 취소", key="cancel_hash"):
+                   st.session_state.hash_confirmation_step = 0
+                   st.rerun()
+       
+       # 3단계: 실제 해시 처리
+       elif st.session_state.hash_confirmation_step == 2:
+           # progress_bar와 status_text 초기화
+           progress_bar = None
+           status_text = None
+           
+           try:
+               from modules.de_identification.hashing import HashingProcessor
+               
+               # 진행 상황 표시
+               progress_bar = st.progress(0)
+               status_text = st.empty()
+               
+               # 데이터프레임 준비
+               if 'df_processed' not in st.session_state:
+                   st.session_state.df_processed = st.session_state.df.copy()
+               
+               # 파라미터 준비
+               hash_params = {
+                   'algorithm': algorithm,
+                   'salt_type': salt_type,
+                   'salt_value': salt_value,
+                   'output_format': output_format,
+                   'short_length': short_length
+               }
+               
+               if hash_type == 'single':
+                   # 단일 컬럼 해시 - 각 컬럼별로 처리
+                   total_cols = len(selected_columns)
+                   for i, column in enumerate(selected_columns):
+                       status_text.text(f"처리 중: {column}")
+                       progress_bar.progress((i + 1) / total_cols)
+                       
+                       hashed_series = HashingProcessor.hash_column(
+                           st.session_state.df_processed,
+                           column,
+                           **hash_params
+                       )
+                       
+                       # 해시된 컬럼으로 교체
+                       st.session_state.df_processed[column] = hashed_series
+                       
+                       # 처리 기록
+                       if 'processing_history' not in st.session_state:
+                           st.session_state.processing_history = []
+                       
+                       st.session_state.processing_history.append({
+                           'type': '해시',
+                           'column': column,
+                           'details': f"{algorithm_display}, {salt_type_display}"
+                       })
+               
+               else:  # combined
+                   # 복수 컬럼 조합 해시
+                   status_text.text("조합 해시 생성 중...")
+                   progress_bar.progress(0.5)
+                   
+                   hash_params['separator'] = separator
+                   
+                   hashed_series = HashingProcessor.hash_combined(
+                       st.session_state.df_processed,
+                       selected_columns,
+                       **hash_params
+                   )
+                   
+                   # 새 컬럼명 생성
+                   new_column_name = f"{'_'.join(selected_columns[:2])}_조합해시"
+                   if len(selected_columns) > 2:
+                       new_column_name = f"{selected_columns[0]}_외{len(selected_columns)-1}_조합해시"
+                   
+                   # 새 컬럼 추가
+                   st.session_state.df_processed[new_column_name] = hashed_series
+                   
+                   # 원본 컬럼 삭제
+                   if st.session_state.get('delete_original_cols', False):
+                       for col in selected_columns:
+                           del st.session_state.df_processed[col]
+                       deleted_info = " (원본 삭제됨)"
+                   else:
+                       deleted_info = ""
+                   
+                   # 처리 기록
+                   if 'processing_history' not in st.session_state:
+                       st.session_state.processing_history = []
+                   
+                   st.session_state.processing_history.append({
+                       'type': '조합 해시',
+                       'column': new_column_name,
+                       'details': f"{', '.join(selected_columns)} → {algorithm_display}{deleted_info}"
+                   })
+               
+               progress_bar.progress(1.0)
+               status_text.text("완료!")
+               
+               # Salt 값 저장 안내
+               if salt_type == "global" and salt_value:
+                   st.success(f"""
+                   ✅ 해시 적용이 완료되었습니다!
+                   
+                   **중요**: Salt 값을 안전하게 보관하세요
+                   ```
+                   {salt_value}
+                   ```
+                   이 값이 없으면 동일한 해시를 재현할 수 없습니다.
+                   """)
+               else:
+                   st.success("✅ 해시 적용이 완료되었습니다!")
+               
+               # 상태 초기화
+               st.session_state.hash_confirmation_step = 0
+               
+               time.sleep(1)
+               st.rerun()
+               
+           except Exception as e:
+               st.error(f"해시 처리 중 오류 발생: {str(e)}")
+               # 상태 초기화
+               st.session_state.hash_confirmation_step = 0
+               # progress_bar와 status_text가 None이 아닐 때만 empty() 호출
+               if progress_bar is not None:
+                   progress_bar.empty()
+               if status_text is not None:
+                   status_text.empty()
