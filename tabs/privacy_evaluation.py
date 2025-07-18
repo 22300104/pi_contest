@@ -1347,6 +1347,7 @@ def calculate_ec_statistics(df: pd.DataFrame, ec_cols: List[str], target_cols: L
     
     return result_df
 
+
 def display_ec_statistics_results(ec_stats_df: pd.DataFrame, selected_qi: List[str], target_cols: List[str]):
     """EC 통계 결과 표시 (최적화)"""
     
@@ -1368,32 +1369,62 @@ def display_ec_statistics_results(ec_stats_df: pd.DataFrame, selected_qi: List[s
     col1, col2 = st.columns(2)
     
     with col1:
-        # 표시할 행 수 제한
-        max_rows = st.slider(
-            "표시할 최대 EC 수",
-            min_value=10,
-            max_value=min(1000, len(ec_stats_df)),
-            value=min(100, len(ec_stats_df)),
-            step=10
-        )
+        # 🔴 수정된 부분: EC 수에 따라 동적으로 조정
+        ec_count = len(ec_stats_df)
+        
+        if ec_count <= 10:
+            # EC가 10개 이하면 슬라이더 대신 전체 표시
+            st.info(f"EC가 {ec_count}개뿐이므로 전체를 표시합니다.")
+            max_rows = ec_count
+        else:
+            # EC가 충분히 많을 때만 슬라이더 사용
+            # 최소값을 EC 수에 맞게 조정
+            min_rows = min(10, ec_count)
+            max_rows_limit = min(1000, ec_count)
+            default_rows = min(100, ec_count)
+            
+            max_rows = st.slider(
+                "표시할 최대 EC 수",
+                min_value=min_rows,
+                max_value=max_rows_limit,
+                value=default_rows,
+                step=max(1, min_rows // 10)  # step도 동적으로 조정
+            )
     
     with col2:
         # 정렬 옵션
-        sort_by = st.selectbox(
-            "정렬 기준",
-            ['EC_SIZE'] + [col for col in ec_stats_df.columns if col.endswith('_entropy')],
-            format_func=lambda x: x.replace('_', ' ').title()
-        )
-        sort_order = st.radio("정렬 순서", ["오름차순", "내림차순"], horizontal=True)
+        sort_columns = ['EC_SIZE'] + [col for col in ec_stats_df.columns if col.endswith('_entropy')]
+        
+        # 정렬 가능한 컬럼이 있는지 확인
+        if sort_columns:
+            sort_by = st.selectbox(
+                "정렬 기준",
+                sort_columns,
+                format_func=lambda x: x.replace('_', ' ').title()
+            )
+            sort_order = st.radio("정렬 순서", ["오름차순", "내림차순"], horizontal=True)
+        else:
+            sort_by = 'EC_SIZE'
+            sort_order = "오름차순"
+            st.info("정렬 기준: EC 크기")
     
     # 테이블 표시
     st.markdown("### 📋 EC별 통계 테이블")
     
+    # EC가 없는 경우 처리
+    if len(ec_stats_df) == 0:
+        st.warning("표시할 EC가 없습니다.")
+        return
+    
     # 정렬 적용
-    display_df = ec_stats_df.sort_values(
-        sort_by, 
-        ascending=(sort_order == "오름차순")
-    ).head(max_rows)
+    try:
+        display_df = ec_stats_df.sort_values(
+            sort_by, 
+            ascending=(sort_order == "오름차순")
+        ).head(max_rows)
+    except KeyError:
+        # 정렬 컬럼이 없는 경우 기본 정렬
+        display_df = ec_stats_df.head(max_rows)
     
     # 컬럼 선택
     display_cols = selected_qi + ['EC_SIZE']
@@ -1401,12 +1432,18 @@ def display_ec_statistics_results(ec_stats_df: pd.DataFrame, selected_qi: List[s
         stat_cols = [col for col in display_df.columns if col.startswith(f'{target_col}_')]
         display_cols.extend(stat_cols)
     
+    # 실제 존재하는 컬럼만 필터링
+    display_cols = [col for col in display_cols if col in display_df.columns]
+    
     # 데이터프레임 표시
-    st.dataframe(
-        display_df[display_cols],
-        use_container_width=True,
-        height=400
-    )
+    if display_cols:
+        st.dataframe(
+            display_df[display_cols],
+            use_container_width=True,
+            height=400
+        )
+    else:
+        st.error("표시할 컬럼이 없습니다.")
     
     # 다운로드
     csv = ec_stats_df.to_csv(index=False, encoding='utf-8-sig')
@@ -1417,9 +1454,13 @@ def display_ec_statistics_results(ec_stats_df: pd.DataFrame, selected_qi: List[s
         mime="text/csv"
     )
     
-    # 시각화는 선택적으로
-    if st.checkbox("📈 엔트로피 시각화 보기", value=False, key="show_entropy_viz_main"):
-        display_entropy_visualization(display_df)
+    # 시각화는 선택적으로 (엔트로피 컬럼이 있을 때만)
+    entropy_cols = [col for col in ec_stats_df.columns if col.endswith('_entropy')]
+    if entropy_cols:
+        if st.checkbox("📈 엔트로피 시각화 보기", value=False, key="show_entropy_viz_main"):
+            display_entropy_visualization(display_df)
+    else:
+        st.info("엔트로피 데이터가 없어 시각화를 표시할 수 없습니다.")
 
 
 # 사용자에게 선택권을 주는 방식
