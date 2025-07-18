@@ -102,17 +102,6 @@ def render_k_anonymity_section(df: pd.DataFrame):
         else:
             st.info("📌 전체 모집단 데이터로 분석합니다")
         
-            # 🔴 표본률 입력 추가
-    st.markdown("#### 📊 표본률 설정")
-    sample_rate = st.number_input(
-        "표본률 (f)",
-        min_value=0.001,
-        max_value=1.0,
-        value=1.0,
-        step=0.01,
-        format="%.3f",
-        help="전체 모집단 대비 현재 데이터의 비율 (1.0 = 전체 데이터)"
-    )
     
     # 표본률에 따른 설명
     if sample_rate < 1.0:
@@ -576,13 +565,6 @@ def render_k_anonymity_section(df: pd.DataFrame):
                     'emp_risk_level': k_stats['emp_risk_level']  # 🔴 추가
 }
                 
-                st.session_state.privacy_analysis['k_anonymity'] = {
-                    'quasi_identifiers': selected_qi,
-                    'k_value': k_value,
-                    'k_stats': k_stats,
-                    'threshold': k_threshold,
-                    'sampled': use_sampling
-                }
                 
                 st.success("✅ k-익명성 분석이 완료되었습니다!")
                 
